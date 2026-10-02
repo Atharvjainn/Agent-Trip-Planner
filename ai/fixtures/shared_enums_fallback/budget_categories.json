@@ -1,0 +1,11 @@
+{
+  "description": "Fixed list of budget categories (root AGENTS.md §5).",
+  "values": [
+    "flights",
+    "stay",
+    "local_commute",
+    "food",
+    "activities",
+    "buffer"
+  ]
+}

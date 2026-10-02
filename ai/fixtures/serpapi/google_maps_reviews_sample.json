@@ -1,0 +1,16 @@
+{
+  "reviews": [
+    {
+      "rating": 5,
+      "snippet": "Absolutely loved this place, would visit again."
+    },
+    {
+      "rating": 4,
+      "snippet": "Good value, a little crowded on weekends."
+    },
+    {
+      "rating": 3,
+      "snippet": "Decent, but nothing special."
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "description": "Job contract table (root AGENTS.md §4). Keep in sync with packages/shared/src/jobs.ts and services/ai/app/schemas/. When you add or change a job, update all three plus this file.",
+  "jobs": [
+    {
+      "name": "recommend-destinations",
+      "endpoint": "/internal/destinations/recommend",
+      "resultColumn": "Trip.destinationOptions"
+    },
+    {
+      "name": "estimate-budget",
+      "endpoint": "/internal/budget/estimate",
+      "resultColumn": "Trip.budgetAllocation"
+    },
+    {
+      "name": "discover-spots",
+      "endpoint": "/internal/spots/discover",
+      "resultColumn": "Trip.spotOptions"
+    },
+    {
+      "name": "search-flights",
+      "endpoint": "/internal/flights/search",
+      "resultColumn": "Trip.flightOptions"
+    },
+    {
+      "name": "search-hotels",
+      "endpoint": "/internal/hotels/search",
+      "resultColumn": "Trip.hotelOptions"
+    },
+    {
+      "name": "suggest-savings",
+      "endpoint": "/internal/savings/suggest",
+      "resultColumn": "Trip.savingSuggestions"
+    },
+    {
+      "name": "build-summary",
+      "endpoint": "/internal/summary/build",
+      "resultColumn": "Trip.summary"
+    }
+  ]
+}
