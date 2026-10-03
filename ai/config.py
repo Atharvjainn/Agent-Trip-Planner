@@ -16,10 +16,19 @@ NEO4J_PASSWORD = os.environ.get("NEO4J_PASSWORD", "")
 SERPAPI_KEY = os.environ.get("SERPAPI_KEY", "")
 OPENWEATHER_KEY = os.environ.get("OPENWEATHER_KEY", "")
 
-# OpenJev (typed decisions + generation). Point TYPESAFE_BASE_URL at the
-# free Codiv hosted endpoint, or your own vLLM/MLX server.
+# OpenJev (typed decisions only, as of the Gemini generation switch - see
+# GEMINI_* below). Point TYPESAFE_BASE_URL at the free Codiv hosted
+# endpoint, or your own vLLM/MLX server.
 TYPESAFE_BASE_URL = os.environ.get("TYPESAFE_BASE_URL", "https://api.codiv.ai")
 TYPESAFE_API_KEY = os.environ.get("TYPESAFE_API_KEY", "")
+
+# Gemini (free-form generation + tool-calling extraction), reached through
+# Google's OpenAI-compatible endpoint so llm.py's existing `openai.OpenAI`
+# client works unchanged - just pointed at a different base_url/key.
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+GEMINI_BASE_URL = os.environ.get(
+    "GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/"
+)
 
 # how long cached data is trusted before we treat it as a cache miss
 ATTRACTION_CACHE_MAX_AGE_DAYS = 30

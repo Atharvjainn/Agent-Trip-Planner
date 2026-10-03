@@ -20,7 +20,11 @@ MODEL TIERS - by task complexity, not one model for everything:
                     vs "replace what's planned" vs "extend the trip" is
                     a genuinely harder call than routing a greeting, and
                     gets the model that can actually reason about it.
-  GENERATION_MODEL diffusiongemma-26b - free text + tool-call extraction.
+  GENERATION_MODEL gemini-2.5-flash - free text + tool-call extraction.
+                    Reached via Gemini's OpenAI-compatible endpoint, so
+                    `generate()` below is unchanged; only the client's
+                    base_url/api_key and the model string differ from the
+                    three decision tiers above, which stay on OpenJev.
 
 TWO-LEVEL INTENT CLASSIFICATION, and why: a flat "modify_plan vs
 in_trip_query" split (the first version of this file) doesn't match how
@@ -43,13 +47,17 @@ import config
 FAST_MODEL = "verdict-1.4"
 STANDARD_MODEL = "laya-1.0"
 REASONING_MODEL = "openjev-latest"
-GENERATION_MODEL = "diffusiongemma-26b"
+GENERATION_MODEL = "gemini-2.5-flash"
 
 _decision_client = TypeSafeClient(
     base_url=config.TYPESAFE_BASE_URL, api_key=config.TYPESAFE_API_KEY
 )
+# Gemini via its OpenAI-compatible endpoint - same `openai.OpenAI` client
+# class as before, just pointed at Google instead of OpenJev, so generate()
+# and everything built on it (build_reply, extract_trip_slots) needs no
+# other changes.
 _generation_client = OpenAI(
-    base_url=f"{config.TYPESAFE_BASE_URL}/v1", api_key=config.TYPESAFE_API_KEY
+    base_url=config.GEMINI_BASE_URL, api_key=config.GEMINI_API_KEY
 )
 
 
