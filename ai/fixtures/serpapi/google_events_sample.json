@@ -1,0 +1,14 @@
+{
+  "events_results": [
+    {
+      "title": "Riverside Market Night Market",
+      "date": {"start_date": "Nov 12"},
+      "venue": {"name": "Riverside Market"}
+    },
+    {
+      "title": "Old Town Museum After Hours",
+      "date": {"start_date": "Nov 14"},
+      "venue": {"name": "Old Town Museum"}
+    }
+  ]
+}

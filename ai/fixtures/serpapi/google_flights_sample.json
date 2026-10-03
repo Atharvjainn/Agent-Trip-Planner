@@ -1,0 +1,60 @@
+{
+  "search_metadata": {
+    "google_flights_url": "https://www.google.com/travel/flights?example"
+  },
+  "search_parameters": {
+    "currency": "USD"
+  },
+  "best_flights": [
+    {
+      "flights": [
+        {
+          "departure_airport": {"id": "JFK", "time": "2026-11-10 08:00"},
+          "arrival_airport": {"id": "CDG", "time": "2026-11-10 20:30"},
+          "airline": "Air Example",
+          "flight_number": "AX101"
+        }
+      ],
+      "price": 612,
+      "total_duration": 450,
+      "booking_token": "token-best-1",
+      "booking_link": "https://www.google.com/travel/flights/booking?token=token-best-1"
+    },
+    {
+      "flights": [
+        {
+          "departure_airport": {"id": "JFK", "time": "2026-11-10 10:15"},
+          "arrival_airport": {"id": "LHR", "time": "2026-11-10 22:00"},
+          "airline": "Example Air",
+          "flight_number": "EA220"
+        },
+        {
+          "departure_airport": {"id": "LHR", "time": "2026-11-11 06:00"},
+          "arrival_airport": {"id": "CDG", "time": "2026-11-11 07:30"},
+          "airline": "Example Air",
+          "flight_number": "EA331"
+        }
+      ],
+      "price": 548,
+      "total_duration": 495,
+      "booking_token": "token-best-2",
+      "booking_link": "https://www.google.com/travel/flights/booking?token=token-best-2"
+    }
+  ],
+  "other_flights": [
+    {
+      "flights": [
+        {
+          "departure_airport": {"id": "JFK", "time": "2026-11-10 23:40"},
+          "arrival_airport": {"id": "CDG", "time": "2026-11-11 12:10"},
+          "airline": "Budget Wings",
+          "flight_number": "BW77"
+        }
+      ],
+      "price": 410,
+      "total_duration": 510,
+      "booking_token": "token-other-1",
+      "booking_link": "https://www.google.com/travel/flights/booking?token=token-other-1"
+    }
+  ]
+}
