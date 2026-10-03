@@ -87,7 +87,7 @@ class TurnResponse(TypedDict):
     stage: str
     ui_component: Literal[
         "text", "destination_options", "attraction_options",
-        "hotel_options", "flight_options", "itinerary", "nearby_options", "error",
+        "hotel_options", "flight_options", "itinerary", "nearby_options", "airport_options", "error",
     ]
     options: list
     requires_user_input: bool
@@ -99,7 +99,7 @@ class TripState(TypedDict):
     session_id: str
     user_id: Optional[str]
     conversation_stage: Literal[
-        "start", "collecting_departure", "collecting_destination", "collecting_attractions",
+        "start", "collecting_departure", "collecting_departure_airport", "collecting_destination", "collecting_attractions",
         "collecting_hotel", "itinerary_ready", "trip_active",
         "collecting_flight_departure", "collecting_flight_date",
     ]
@@ -108,6 +108,8 @@ class TripState(TypedDict):
     # collected inputs
     destination_city: Optional[str]
     departure_city: Optional[str]  # needed by services.fetch_destination_recommendations
+    departure_airport: Optional[str]
+    departure_airport_options: list
     vibe: Optional[str]
     budget_total: Optional[float]
     duration_days: Optional[int]

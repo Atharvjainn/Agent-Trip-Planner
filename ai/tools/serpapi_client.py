@@ -26,9 +26,8 @@ depending on it in production - SerpApi's exact fields can vary
 slightly by place/property type and do drift between updates.
 """
 from serpapi import GoogleSearch
-import config
-
-
+from app import config
+settings = config.get_settings()
 # ---------------------------------------------------------------- places --
 
 def search_attractions(query: str, lat: float | None = None, lon: float | None = None,
@@ -128,6 +127,48 @@ def resolve_departure_id(city_text: str) -> str | None:
     return airports[0]["id"] if airports else None
 
 
+def resolve_airport_options(location_text: str) -> list:
+    """Resolves location text into real airport options via Google Flights
+    autocomplete. If location_text is already a 3-letter IATA code, returns
+    it directly."""
+    if len(location_text) == 3 and location_text.isupper():
+        return [{"id": location_text, "name": location_text, "code": location_text}]
+
+    suggestions = search_flight_autocomplete(location_text)
+    if not suggestions:
+        return []
+
+    options = []
+    seen_ids = set()
+
+    for item in suggestions:
+        airports = item.get("airports") or []
+        for apt in airports:
+            apt_id = apt.get("id") or apt.get("code")
+            apt_name = apt.get("title") or apt.get("name") or apt_id
+            if apt_id and apt_id not in seen_ids:
+                seen_ids.add(apt_id)
+                options.append({
+                    "id": apt_id,
+                    "name": f"{apt_id} - {apt_name}" if apt_name and not str(apt_name).startswith(apt_id) else (apt_name or apt_id),
+                    "code": apt_id,
+                })
+
+        item_id = item.get("id")
+        item_type = str(item.get("type") or "").lower()
+        if item_id and item_id not in seen_ids:
+            if item_type == "airport" or (len(item_id) == 3 and item_id.isupper()):
+                seen_ids.add(item_id)
+                item_name = item.get("title") or item.get("name") or item_id
+                options.append({
+                    "id": item_id,
+                    "name": f"{item_id} - {item_name}" if item_name and not str(item_name).startswith(item_id) else (item_name or item_id),
+                    "code": item_id,
+                })
+
+    return options
+
+
 def search_explore_destinations(departure_id: str, interest: str | None = None,
                                  currency: str = "USD", limit: int = 4) -> list:
     """Real destination recommendations - names, coordinates, images,
@@ -198,7 +239,7 @@ def get_directions(origin_lat: float, origin_lon: float, dest_lat: float, dest_l
 
 # ---------------------------------------------------------------- events --
 
-def search_events(city: str, limit: int = config.MAX_EVENTS_SHOWN) -> list:
+def search_events(city: str, limit: int = settings.cap_events) -> list:
     """Real events (festivals, concerts, exhibitions) at a destination -
     used to enrich the itinerary reply, not to pick a destination.
     Filtering to a specific trip's exact dates wasn't confirmed as

@@ -61,7 +61,7 @@ class Settings:
     # (ProviderUnavailable), not as a literal empty API key.
     gemini_api_key: str | None = os.getenv("GEMINI_API_KEY") or None
     openai_api_key: str | None = os.getenv("OPENAI_API_KEY") or None
-    grok_api_key: str | None = os.getenv("GROK_API_KEY") or None
+    groq_api_key: str | None = os.getenv("GROQ_API_KEY") or None
     llm_timeout_seconds: float = float(os.getenv("LLM_TIMEOUT_SECONDS") or "20")
 
     # --- SerpApi (root AGENTS.md §7) ---
@@ -78,6 +78,7 @@ class Settings:
     cap_spots: int = 20
     cap_hotels: int = 15
     cap_flights: int = 10
+    cap_events: int = 10
 
     # --- cache TTLs, seconds (root AGENTS.md §7) ---
     ttl_flights: int = 15 * 60
