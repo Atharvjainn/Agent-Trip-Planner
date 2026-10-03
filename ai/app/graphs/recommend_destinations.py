@@ -28,6 +28,7 @@ from app.schemas.destinations import (
 )
 from app.tools.serpapi import FixtureNotFound, SerpApiClient
 
+
 logger = logging.getLogger("services.ai.graphs.recommend_destinations")
 
 
@@ -97,9 +98,13 @@ async def node_gather_candidates(state: DestState) -> dict:
             f"Suggest {needed} more candidate destination cities (not already "
             f"in {[c['city'] for c in kg_candidates]}) matching vibes "
             f"{req.vibes}, reachable from {req.source}, within a total trip "
-            f'budget of {req.budget_total.amount_minor} {req.budget_total.currency} '
-            f'minor units. Return JSON: {{"candidates": [{{"city": str, '
-            f'"country": str, "vibeScore": float}}]}}.'
+            f"budget of {req.budget_total.amount_minor} {req.budget_total.currency} "
+            f"minor units.\n"
+            f'Return JSON with format: {{"candidates": [{{"city": str, "country": str, "vibeScore": float}}]}}\n'
+            f"Requirements:\n"
+            f"- vibeScore MUST be a decimal float between 0.0 and 1.0 (e.g. 0.85). Never use a 0-10 or 0-100 scale.\n"
+            f'- Return EXACTLY these three fields for each candidate: "city", "country", "vibeScore".\n'
+            f'- Do NOT include "reason" or any other additional fields.'
         )
         result = await deps.llm.structured(
             "recommend_destinations.cold_start", prompt, _ColdStartResult, system=SYSTEM
@@ -143,18 +148,26 @@ async def node_price_check(state: DestState) -> dict:
     priced = []
     for candidate in state["candidates"]:
         try:
-            flights = await deps.serpapi.search_flights(
-                source=req.source,
-                destination=candidate["city"],
-                start_date=req.start_date,
-                end_date=req.end_date,
-                cap=1,
-            )
-            if flights:
-                price = Money(amount_minor=flights[0].price_amount_minor, currency=flights[0].currency)
+            dest_id = candidate["city"]
+            if dest_id:
+                flights = await deps.serpapi.search_flights(
+                    source=req.source,
+                    destination=dest_id,
+                    start_date=req.start_date,
+                    end_date=req.end_date,
+                    cap=1,
+                )
+                if flights:
+                    price = Money(amount_minor=flights[0].price_amount_minor, currency=flights[0].currency)
+                else:
+                    price = _fallback_price(req)
             else:
+                logger.warning(
+                    "recommend_destinations: could not resolve destination ID for %s, using fallback price",
+                    candidate["city"],
+                )
                 price = _fallback_price(req)
-        except (FixtureNotFound, httpx.HTTPStatusError, httpx.RequestError) as exc:
+        except (FixtureNotFound, httpx.HTTPStatusError, httpx.RequestError, Exception) as exc:
             # A bad live-API param (e.g. a city name where SerpApi wants an
             # IATA code) or any transient network/SerpApi error must not
             # crash the whole recommendation — this price is only a

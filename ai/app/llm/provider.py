@@ -64,7 +64,7 @@ class GeminiBackend:
             raise ProviderUnavailable("GEMINI_API_KEY not configured")
         url = (
             "https://generativelanguage.googleapis.com/v1beta/models/"
-            f"gemini-1.5-flash:generateContent?key={self._settings.gemini_api_key}"
+            f"gemini-3.1-flash-lite:generateContent?key={self._settings.gemini_api_key}"
         )
         body = {
             "contents": [{"parts": [{"text": prompt}]}],
@@ -107,36 +107,64 @@ class OpenAIBackend:
             return data["choices"][0]["message"]["content"]
 
 
-class GrokBackend:
-    name = "grok"
+class GroqBackend:
+    name = "groq"
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
 
-    async def complete_json(self, *, prompt: str, system: str | None, timeout_seconds: float) -> str:
-        if not self._settings.grok_api_key:
-            raise ProviderUnavailable("GROK_API_KEY not configured")
+    async def complete_json(
+        self,
+        *,
+        prompt: str,
+        system: str | None,
+        timeout_seconds: float
+    ) -> str:
+
+        if not self._settings.groq_api_key:
+            raise ProviderUnavailable("GROQ_API_KEY not configured")
+
         messages = []
+
         if system:
-            messages.append({"role": "system", "content": system})
-        messages.append({"role": "user", "content": prompt})
-        async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+            messages.append({
+                "role": "system",
+                "content": system
+            })
+
+        messages.append({
+            "role": "user",
+            "content": prompt
+        })
+
+        async with httpx.AsyncClient(
+            timeout=timeout_seconds
+        ) as client:
+
             resp = await client.post(
-                "https://api.x.ai/v1/chat/completions",
-                headers={"Authorization": f"Bearer {self._settings.grok_api_key}"},
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self._settings.groq_api_key}",
+                    "Content-Type": "application/json",
+                },
                 json={
-                    "model": "grok-2-latest",
+                    "model": "openai/gpt-oss-20b",
                     "messages": messages,
-                    "response_format": {"type": "json_object"},
+                    "response_format": {
+                        "type": "json_object"
+                    },
                 },
             )
+
             resp.raise_for_status()
+
             data = resp.json()
+
             return data["choices"][0]["message"]["content"]
 
 
 class LLMProvider:
-    """Orchestrates the Gemini -> OpenAI -> Grok fallback chain. One retry
+    """Orchestrates the Gemini -> OpenAI -> Groq fallback chain. One retry
     per provider, then move on. Construct with explicit `backends` in
     tests to avoid any real network calls."""
 
@@ -148,7 +176,7 @@ class LLMProvider:
         self._backends = backends or [
             GeminiBackend(settings),
             OpenAIBackend(settings),
-            GrokBackend(settings),
+            GroqBackend(settings),
         ]
 
     async def structured(
