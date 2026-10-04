@@ -13,6 +13,11 @@ from tools.geo import centroid
 from tools import serpapi_client
 from state import TripState
 
+_CONFIRM_YES = {"yes", "yeah", "yep", "sure", "confirm", "book", "ok", "okay",
+                "sounds good", "go ahead", "do it", "confirmed", "proceed"}
+_CONFIRM_NO  = {"no", "nope", "nah", "cancel", "different", "change", "other",
+                "another", "back", "wait", "not this one"}
+
 
 def hotels_node(state: TripState) -> TripState:
     city = state["destination_city"]
@@ -61,6 +66,45 @@ def confirm_hotel_node(state: TripState) -> TripState:
         }
         return state
 
+    # If we already asked for confirmation, process the yes/no answer
+    if state.get("conversation_stage") == "confirming_hotel":
+        msg_lower = state["last_user_message"].strip().lower()
+        if any(w in msg_lower for w in _CONFIRM_NO):
+            # User changed their mind — go back to selection
+            state["confirmed_hotel"] = None
+            state["conversation_stage"] = "collecting_hotel"
+            state["turn_response"] = {
+                "reply": llm.build_reply(
+                    context={"hotels": state["hotel_candidates"]},
+                    instruction="The user wants a different hotel. Show the options again and ask them to choose.",
+                ),
+                "stage": "collecting_hotel",
+                "ui_component": "hotel_options",
+                "options": state["hotel_candidates"],
+                "requires_user_input": True,
+                "input_type": "select_one",
+            }
+            return state
+        # Default: treat as yes (confirmed)
+        hotel["mock_confirmed"] = True
+        state["conversation_stage"] = "itinerary_ready"
+        state["turn_response"] = {
+            "reply": llm.build_reply(
+                context={"confirmed_hotel": hotel},
+                instruction=(
+                    "Tell the user their hotel is confirmed (DEMO/MOCK only — no real "
+                    "reservation or payment was made). Now building the day-by-day itinerary."
+                ),
+            ),
+            "stage": "itinerary_ready",
+            "ui_component": "text",
+            "options": [],
+            "requires_user_input": False,
+            "input_type": "none",
+        }
+        return state
+
+    # First visit: refresh price, then ask for booking confirmation
     nights = state.get("duration_days") or config.DEFAULT_TRIP_DURATION_DAYS
     fresh = serpapi_client.refresh_hotel_price(
         hotel["place_id"],
@@ -71,16 +115,20 @@ def confirm_hotel_node(state: TripState) -> TripState:
     if fresh:
         hotel.update(fresh)
 
-    state["conversation_stage"] = "itinerary_ready"
+    state["conversation_stage"] = "confirming_hotel"
     state["turn_response"] = {
         "reply": llm.build_reply(
-            context={"confirmed_hotel": hotel},
-            instruction="Confirm the hotel choice and say the day-by-day itinerary is being built now.",
+            context={"hotel": hotel, "nights": nights, "currency": state["currency"]},
+            instruction=(
+                "Summarise the selected hotel: name, price per night, total cost for the stay. "
+                "Then ask the user to confirm (yes/no). Do not claim any real reservation "
+                "or payment — this is a demo booking flow only."
+            ),
         ),
-        "stage": "itinerary_ready",
+        "stage": "confirming_hotel",
         "ui_component": "text",
         "options": [],
-        "requires_user_input": False,
-        "input_type": "none",
+        "requires_user_input": True,
+        "input_type": "confirm",
     }
     return state

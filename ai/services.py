@@ -63,10 +63,14 @@ def fetch_hotel_candidates(city: str, lat: float, lon: float, budget_total: floa
 
     if budget_total:
         per_night_cap = budget_total * config.HOTEL_BUDGET_FRACTION / nights
-        candidates = [
+        within_budget = [
             h for h in candidates
             if not h.get("rate_per_night") or h["rate_per_night"] <= per_night_cap
         ]
+        # If the budget cap filters everything out (e.g. all SerpApi results are
+        # above cap) show the full set anyway — the caller's reply context can
+        # note they're over budget; showing nothing is strictly worse.
+        candidates = within_budget if within_budget else candidates
 
     filtered = [h for h in candidates if h.get("place_id") not in exclude_place_ids]
     return sorted(filtered, key=lambda h: h["distance_km_from_cluster"])[:limit]

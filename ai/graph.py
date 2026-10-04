@@ -62,10 +62,12 @@ def route_from_start(state: TripState) -> str:
         "collecting_destination": "destination",
         "collecting_attractions": "confirm_attractions",
         "collecting_hotel": "confirm_hotel",
+        "confirming_hotel": "confirm_hotel",   # re-enter node to process yes/no
         "itinerary_ready": "itinerary",
         "trip_active": "adjust",
         "collecting_flight_departure": "adjust",
         "collecting_flight_date": "adjust",
+        "confirming_flight": "adjust",          # re-enter adjust to handle yes/no
     }[state["conversation_stage"]]
 
 

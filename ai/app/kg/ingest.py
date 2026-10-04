@@ -26,15 +26,17 @@ async def _safe_write(query: str, params: dict, *, what: str) -> None:
         logger.warning("kg_ingest_failed", extra={"what": what}, exc_info=True)
 
 
-async def ingest_place(place: NormalizedPlace, *, city: str, country: str) -> None:
+async def ingest_place(place: Any, *, city: str, country: str) -> None:
+    lat = getattr(place, "lat", None) or (place.location.lat if hasattr(place, "location") else None)
+    lng = getattr(place, "lng", None) or (place.location.lng if hasattr(place, "location") else None)
     await _safe_write(queries.MERGE_CITY, {"name": city, "country": country}, what="city")
     await _safe_write(
         queries.MERGE_PLACE,
         {
             "provider_id": place.provider_ref.id,
             "name": place.name,
-            "lat": place.lat,
-            "lng": place.lng,
+            "lat": lat,
+            "lng": lng,
             "rating": place.rating,
             "city": city,
             "country": country,
@@ -52,15 +54,17 @@ async def ingest_place_vibe_scores(provider_id: str, vibe_scores: list[tuple[str
         )
 
 
-async def ingest_hotel(hotel: NormalizedHotel, *, city: str, country: str) -> None:
+async def ingest_hotel(hotel: Any, *, city: str, country: str) -> None:
+    lat = getattr(hotel, "lat", None) or (hotel.location.lat if hasattr(hotel, "location") else None)
+    lng = getattr(hotel, "lng", None) or (hotel.location.lng if hasattr(hotel, "location") else None)
     await _safe_write(queries.MERGE_CITY, {"name": city, "country": country}, what="city")
     await _safe_write(
         queries.MERGE_HOTEL,
         {
             "provider_id": hotel.provider_ref.id,
             "name": hotel.name,
-            "lat": hotel.lat,
-            "lng": hotel.lng,
+            "lat": lat,
+            "lng": lng,
             "rating": hotel.rating,
             "city": city,
             "country": country,
