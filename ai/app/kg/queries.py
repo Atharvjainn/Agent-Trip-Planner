@@ -108,3 +108,73 @@ MATCH (c:City {name: $city, country: $country})<-[:IN]-(p:Place)-[hv:HAS_VIBE]->
 RETURN p.providerId AS providerId, p.name AS name, p.lat AS lat, p.lng AS lng,
        p.rating AS rating, collect({vibe: v.name, score: hv.score}) AS vibeScores
 """
+
+# --- experience-based learning & similarity reads ---
+
+FIND_SIMILAR_EXPERIENCES = """
+MATCH (t:Trip)-[:WANTED]->(v:Vibe)
+WITH t, collect(DISTINCT v.name) AS tripVibes
+WITH t, tripVibes, [x IN tripVibes WHERE x IN $vibes] AS commonVibes
+WITH t, tripVibes, commonVibes, size(commonVibes) AS intersectionSize,
+     (size(tripVibes) + size($vibes) - size(commonVibes)) AS unionSize
+WITH t, tripVibes, commonVibes,
+     CASE WHEN unionSize > 0 THEN (1.0 * intersectionSize / unionSize) ELSE 0.0 END AS similarity
+WHERE similarity >= $threshold
+OPTIONAL MATCH (t)-[:TO]->(c:City)
+RETURN t.anonymizedId AS tripId, c.name AS city, c.country AS country, similarity, tripVibes, commonVibes
+ORDER BY similarity DESC
+LIMIT $limit
+"""
+
+FIND_EXPERIENCED_DESTINATIONS = """
+MATCH (t:Trip)-[:TO]->(c:City)
+MATCH (t)-[:WANTED]->(v:Vibe)
+WITH t, c, collect(DISTINCT v.name) AS tripVibes
+WITH t, c, tripVibes, [x IN tripVibes WHERE x IN $vibes] AS commonVibes
+WITH t, c, tripVibes, commonVibes, size(commonVibes) AS intersectionSize,
+     (size(tripVibes) + size($vibes) - size(commonVibes)) AS unionSize
+WITH t, c, tripVibes, commonVibes,
+     CASE WHEN unionSize > 0 THEN (1.0 * intersectionSize / unionSize) ELSE 0.0 END AS similarity
+WHERE similarity >= $threshold
+WITH c, avg(similarity) AS vibeScore, count(DISTINCT t) AS tripCount
+RETURN c.name AS city, c.country AS country, vibeScore, tripCount
+ORDER BY vibeScore DESC, tripCount DESC
+LIMIT $limit
+"""
+
+FIND_EXPERIENCED_PLACES = """
+MATCH (t:Trip)-[:TO]->(c:City)
+WHERE c.name = $city AND ($country IS NULL OR c.country = $country)
+MATCH (t)-[:WANTED]->(v:Vibe)
+WITH t, c, collect(DISTINCT v.name) AS tripVibes
+WITH t, c, tripVibes, [x IN tripVibes WHERE x IN $vibes] AS commonVibes
+WITH t, c, tripVibes, commonVibes, size(commonVibes) AS intersectionSize,
+     (size(tripVibes) + size($vibes) - size(commonVibes)) AS unionSize
+WITH t, c, tripVibes, commonVibes,
+     CASE WHEN unionSize > 0 THEN (1.0 * intersectionSize / unionSize) ELSE 0.0 END AS similarity
+WHERE similarity >= $threshold
+MATCH (t)-[:SELECTED]->(p:Place)
+RETURN p.providerId AS providerId, p.name AS name, p.lat AS lat, p.lng AS lng, p.rating AS rating,
+       count(DISTINCT t) AS selectionCount, avg(similarity) AS avgSimilarity
+ORDER BY selectionCount DESC, avgSimilarity DESC
+LIMIT $limit
+"""
+
+FIND_EXPERIENCED_HOTELS = """
+MATCH (t:Trip)-[:TO]->(c:City)
+WHERE c.name = $city AND ($country IS NULL OR c.country = $country)
+MATCH (t)-[:WANTED]->(v:Vibe)
+WITH t, c, collect(DISTINCT v.name) AS tripVibes
+WITH t, c, tripVibes, [x IN tripVibes WHERE x IN $vibes] AS commonVibes
+WITH t, c, tripVibes, commonVibes, size(commonVibes) AS intersectionSize,
+     (size(tripVibes) + size($vibes) - size(commonVibes)) AS unionSize
+WITH t, c, tripVibes, commonVibes,
+     CASE WHEN unionSize > 0 THEN (1.0 * intersectionSize / unionSize) ELSE 0.0 END AS similarity
+WHERE similarity >= $threshold
+MATCH (t)-[:SELECTED]->(h:Hotel)
+RETURN h.providerId AS providerId, h.name AS name, h.lat AS lat, h.lng AS lng, h.rating AS rating,
+       count(DISTINCT t) AS selectionCount, avg(similarity) AS avgSimilarity
+ORDER BY selectionCount DESC, avgSimilarity DESC
+LIMIT $limit
+"""
+

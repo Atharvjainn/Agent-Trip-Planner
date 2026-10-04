@@ -80,13 +80,24 @@ class Settings:
     cap_flights: int = 10
     cap_events: int = 10
 
+    # --- Graph similarity ---
+    graph_similarity_threshold: float = float(os.getenv("GRAPH_SIMILARITY_THRESHOLD") or "0.8")
+
     # --- cache TTLs, seconds (root AGENTS.md §7) ---
-    ttl_flights: int = 15 * 60
-    ttl_hotels: int = 60 * 60
+    # Stable data (longer TTL)
+    ttl_place_metadata: int = 24 * 60 * 60
+    ttl_hotel_metadata: int = 24 * 60 * 60
     ttl_places: int = 24 * 60 * 60
+
+    # Volatile data (shorter TTL)
+    ttl_flights: int = 15 * 60
+    ttl_hotel_prices: int = 60 * 60
+    ttl_hotels: int = 60 * 60
+    ttl_events: int = 60 * 60
     ttl_fx: int = 12 * 60 * 60  # owned by apps/api, listed here for reference only
 
     shared_enums_dir: Path = _find_shared_enums_dir()
+
 
 
 @lru_cache

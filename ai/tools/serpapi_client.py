@@ -36,7 +36,7 @@ def search_attractions(query: str, lat: float | None = None, lon: float | None =
         "engine": "google_maps",
         "q": query,
         "type": "search",
-        "api_key": config.SERPAPI_KEY,
+        "api_key": settings.serpapi_key,
     }
     if lat is not None and lon is not None:
         params["ll"] = f"@{lat},{lon},{zoom}"
@@ -59,7 +59,7 @@ def search_tripadvisor(query: str) -> list:
     match - rather than a cross-check on every lookup, to keep this at
     one extra call on the rare miss instead of doubling every
     verification call."""
-    params = {"engine": "tripadvisor", "q": query, "api_key": config.SERPAPI_KEY}
+    params = {"engine": "tripadvisor", "q": query, "api_key": settings.serpapi_key}
     results = GoogleSearch(params).get_dict()
     return [_normalize_tripadvisor_place(loc) for loc in results.get("locations", [])]
 
@@ -77,7 +77,7 @@ def search_hotels(city: str, check_in: str, check_out: str, lat: float, lon: flo
         "currency": currency,  # NOTE: confirmed for google_travel_explore; not
                                  # explicitly confirmed for google_hotels during
                                  # research - verify against a live call.
-        "api_key": config.SERPAPI_KEY,
+        "api_key": settings.serpapi_key,
     }
     results = GoogleSearch(params).get_dict()
     return [_normalize_hotel(h, currency) for h in results.get("properties", [])]
@@ -93,7 +93,7 @@ def refresh_hotel_price(property_token: str, check_in: str, check_out: str,
         "check_in_date": check_in,
         "check_out_date": check_out,
         "currency": currency,
-        "api_key": config.SERPAPI_KEY,
+        "api_key": settings.serpapi_key,
     }
     results = GoogleSearch(params).get_dict()
     props = results.get("properties", [])
@@ -106,7 +106,7 @@ def search_flight_autocomplete(query: str) -> list:
     """Resolves free-text like 'Mumbai' into Google Travel's location
     IDs and airport codes - departure_id (Explore, Flights) can't take
     arbitrary city text directly, this is what makes it able to."""
-    params = {"engine": "google_flights_autocomplete", "q": query, "api_key": config.SERPAPI_KEY}
+    params = {"engine": "google_flights_autocomplete", "q": query, "api_key": settings.serpapi_key}
     results = GoogleSearch(params).get_dict()
     return results.get("suggestions", [])
 
@@ -179,7 +179,7 @@ def search_explore_destinations(departure_id: str, interest: str | None = None,
         "engine": "google_travel_explore",
         "departure_id": departure_id,
         "currency": currency,
-        "api_key": config.SERPAPI_KEY,
+        "api_key": settings.serpapi_key,
     }
     if interest and interest != "0":
         params["interest"] = interest
@@ -200,7 +200,7 @@ def search_flights(departure_id: str, arrival_id: str, outbound_date: str,
         "arrival_id": arrival_id,
         "outbound_date": outbound_date,
         "currency": currency,
-        "api_key": config.SERPAPI_KEY,
+        "api_key": settings.serpapi_key,
     }
     if return_date:
         params["return_date"] = return_date
@@ -231,7 +231,7 @@ def get_directions(origin_lat: float, origin_lon: float, dest_lat: float, dest_l
         "start_coords": f"{origin_lat},{origin_lon}",
         "end_coords": f"{dest_lat},{dest_lon}",
         "travel_mode": travel_mode,
-        "api_key": config.SERPAPI_KEY,
+        "api_key": settings.serpapi_key,
     }
     results = GoogleSearch(params).get_dict()
     return _normalize_route(results)
@@ -247,7 +247,7 @@ def search_events(city: str, limit: int = settings.cap_events) -> list:
     date:today/date:tomorrow, not an arbitrary date range) - this
     returns whatever Google Events currently lists for the city, which
     in practice skews toward near-term events."""
-    params = {"engine": "google_events", "q": f"Events in {city}", "api_key": config.SERPAPI_KEY}
+    params = {"engine": "google_events", "q": f"Events in {city}", "api_key": settings.serpapi_key}
     results = GoogleSearch(params).get_dict()
     return [_normalize_event(e) for e in results.get("events_results", [])[:limit]]
 

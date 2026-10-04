@@ -11,7 +11,6 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, TypedDict
 
-import httpx
 from langgraph.graph import END, StateGraph
 from pydantic import Field
 
@@ -26,8 +25,8 @@ from app.schemas.destinations import (
     DestinationRecommendRequest,
     DestinationRecommendResponse,
 )
-from app.tools.serpapi import FixtureNotFound, SerpApiClient
-
+from app.tools.serpapi import SerpApiClient
+from tools.serpapi_client import resolve_departure_id
 
 logger = logging.getLogger("services.ai.graphs.recommend_destinations")
 
@@ -82,21 +81,56 @@ async def node_gather_candidates(state: DestState) -> dict:
     deps = state["deps"]
     settings = get_settings()
     cap = settings.cap_destination_candidates
+    threshold = settings.graph_similarity_threshold
 
-    kg_candidates = await deps.kg_candidates(req.vibes, cap)
+    learned_candidates: list[dict[str, Any]] = []
+    try:
+        from app.kg.reads import find_experienced_destinations
+
+        learned = await find_experienced_destinations(req.vibes, threshold=threshold, limit=cap)
+        for c in learned:
+            learned_candidates.append(
+                {
+                    "city": c["city"],
+                    "country": c["country"],
+                    "vibeScore": c.get("vibeScore", 0.9),
+                    "source": "learned_experience",
+                }
+            )
+    except Exception:  # noqa: BLE001
+        logger.warning("recommend_destinations: experience lookup failed", exc_info=True)
+        learned_candidates = []
+
+    # Decision Gate: if experienced destinations >= cap exist, use them directly as primary source
+    if len(learned_candidates) >= cap:
+        return {"candidates": learned_candidates[:cap]}
+
+    # Otherwise (when learned candidates with similarity >= threshold are fewer than cap), supplement with normal discovery
+    needed_kg = cap - len(learned_candidates)
+    kg_candidates = await deps.kg_candidates(req.vibes, needed_kg)
     for c in kg_candidates:
         c.setdefault("source", "knowledge_graph")
 
-    if len(kg_candidates) >= cap:
-        return {"candidates": kg_candidates[:cap]}
+    # De-dupe learned + normal KG candidates, preserving learned historical experiences
+    seen: set[tuple[str, str]] = set()
+    merged_kg: list[dict[str, Any]] = []
+    for c in learned_candidates + kg_candidates:
+        key = (c["city"], c["country"])
+        if key in seen:
+            continue
+        seen.add(key)
+        merged_kg.append(c)
+
+    if len(merged_kg) >= cap:
+        return {"candidates": merged_kg[:cap]}
 
     # Cold start (ai/AGENT.md): try LLM-generated candidates first.
-    needed = cap - len(kg_candidates)
+    needed = cap - len(merged_kg)
     cold_start: list[dict[str, Any]] = []
     try:
         prompt = (
             f"Suggest {needed} more candidate destination cities (not already "
-            f"in {[c['city'] for c in kg_candidates]}) matching vibes "
+            f"in {[c['city'] for c in merged_kg]}) matching vibes "
             f"{req.vibes}, reachable from {req.source}, within a total trip "
             f"budget of {req.budget_total.amount_minor} {req.budget_total.currency} "
             f"minor units.\n"
@@ -118,9 +152,9 @@ async def node_gather_candidates(state: DestState) -> dict:
         for c in cold_start:
             c["source"] = "seed_pool_fallback"
 
-    merged = kg_candidates + cold_start
+    merged = merged_kg + cold_start
     # de-dupe by (city, country), preserving order
-    seen: set[tuple[str, str]] = set()
+    seen.clear()
     deduped = []
     for c in merged:
         key = (c["city"], c["country"])
@@ -148,7 +182,7 @@ async def node_price_check(state: DestState) -> dict:
     priced = []
     for candidate in state["candidates"]:
         try:
-            dest_id = candidate["city"]
+            dest_id = resolve_departure_id(candidate["city"])
             if dest_id:
                 flights = await deps.serpapi.search_flights(
                     source=req.source,
@@ -167,15 +201,15 @@ async def node_price_check(state: DestState) -> dict:
                     candidate["city"],
                 )
                 price = _fallback_price(req)
-        except (FixtureNotFound, httpx.HTTPStatusError, httpx.RequestError, Exception) as exc:
+        except Exception as exc:
             # A bad live-API param (e.g. a city name where SerpApi wants an
             # IATA code) or any transient network/SerpApi error must not
             # crash the whole recommendation — this price is only a
             # ranking signal, not something shown to the user as a real
             # flight. Fall back to the budget-derived estimate instead.
-            logger.warning(
-                "recommend_destinations: price check failed for %s (%s), using fallback price",
-                candidate["city"], type(exc).__name__,
+            logger.exception(
+                "Price check failed for %s",
+                candidate["city"],
             )
             price = _fallback_price(req)
         priced.append({**candidate, "estimatedFlightPrice": price})

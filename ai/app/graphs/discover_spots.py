@@ -61,16 +61,46 @@ class SpotState(TypedDict, total=False):
 async def node_fetch(state: SpotState) -> dict:
     req = state["request"]
     deps = state["deps"]
+    settings = get_settings()
 
-    # Two independent SerpApi calls — one failing (bad query shape, a
-    # transient SerpApi error) must not take down the other, and neither
-    # should ever crash the request: empty lists just mean fewer/no spots
-    # and no event matches, which the rest of the graph already handles.
+    from app.kg.reads import find_experienced_places
+    from app.tools.serpapi import NormalizedProviderRef
+
+    learned_places: list[NormalizedPlace] = []
     try:
-        places = await deps.serpapi.search_places(city=req.city, query="tourist attractions")
-    except (FixtureNotFound, httpx.HTTPStatusError, httpx.RequestError) as exc:
-        logger.warning("discover_spots: places lookup failed (%s), returning no spots", type(exc).__name__)
-        places = []
+        experienced = await find_experienced_places(
+            city=req.city,
+            vibes=req.vibes,
+            threshold=settings.graph_similarity_threshold,
+            country=req.country,
+        )
+        learned_places = [
+            NormalizedPlace(
+                provider_ref=NormalizedProviderRef(id=p["providerId"]),
+                name=p["name"],
+                lat=p["lat"],
+                lng=p["lng"],
+                rating=p.get("rating"),
+                types=[],
+            )
+            for p in experienced
+        ]
+    except Exception:  # noqa: BLE001
+        logger.warning("discover_spots: experienced places lookup failed", exc_info=True)
+        learned_places = []
+
+    places: list[NormalizedPlace] = []
+    if len(learned_places) >= settings.cap_spots:
+        places = learned_places[: settings.cap_spots]
+    else:
+        try:
+            fresh_places = await deps.serpapi.search_places(city=req.city, query="tourist attractions")
+        except (FixtureNotFound, httpx.HTTPStatusError, httpx.RequestError) as exc:
+            logger.warning("discover_spots: places lookup failed (%s), returning no spots", type(exc).__name__)
+            fresh_places = []
+
+        seen_ids = {p.provider_ref.id for p in learned_places}
+        places = learned_places + [p for p in fresh_places if p.provider_ref.id not in seen_ids]
 
     try:
         events = await deps.serpapi.search_events(

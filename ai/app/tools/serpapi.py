@@ -215,21 +215,95 @@ class SerpApiClient:
     async def search_hotels(
         self, *, city: str, lat: float, lng: float, check_in: date, check_out: date, cap: int | None = None
     ) -> list[NormalizedHotel]:
-        params = {
+        # 1. Location-based metadata query (stable info: properties list with metadata)
+        meta_params = {
             "q": f"hotels in {city}",
             "lat": round(lat, 3),
             "lng": round(lng, 3),
+        }
+        # 2. Date-specific query for volatile price data
+        price_params = {
+            **meta_params,
             "check_in_date": check_in.isoformat(),
             "check_out_date": check_out.isoformat(),
         }
-        raw = await self._cached_fetch("google_hotels", params, self._settings.ttl_hotels)
+
+        r = await self._get_redis()
+        meta_key = _cache_key("google_hotels_meta", meta_params)
+        price_key = _cache_key("google_hotels_price", price_params)
+
+        cached_meta: dict[str, Any] | None = None
+        cached_prices: dict[str, Any] | None = None
+
+        if r is not None:
+            try:
+                raw_meta = await r.get(meta_key)
+                if raw_meta:
+                    cached_meta = json.loads(raw_meta)
+            except Exception:  # pragma: no cover
+                logger.warning("serpapi: redis get meta_key failed, continuing without meta cache", exc_info=True)
+
+            try:
+                raw_prices = await r.get(price_key)
+                if raw_prices:
+                    cached_prices = json.loads(raw_prices)
+            except Exception:  # pragma: no cover
+                logger.warning("serpapi: redis get price_key failed, continuing without price cache", exc_info=True)
+
+        if cached_meta is None or cached_prices is None:
+            # Fetch raw data from SerpApi using full search parameters (includes both metadata and price info)
+            fresh_raw = await self._fetch_raw("google_hotels", price_params)
+            properties = fresh_raw.get("properties", [])
+            extracted_meta = []
+            extracted_prices = {}
+
+            for prop in properties:
+                prop_copy = dict(prop)
+                token = prop.get("property_token") or prop.get("name")
+                rate = prop_copy.pop("rate_per_night", None)
+                extracted_meta.append(prop_copy)
+                if token and rate is not None:
+                    extracted_prices[token] = rate
+
+            meta_payload = {"properties": extracted_meta}
+            price_payload = {"prices": extracted_prices}
+
+            # Update cache for whichever entries were missing
+            if cached_meta is None:
+                cached_meta = meta_payload
+                if r is not None:
+                    try:
+                        await r.set(meta_key, json.dumps(meta_payload, default=str), ex=self._settings.ttl_hotel_metadata)
+                    except Exception:  # pragma: no cover
+                        logger.warning("serpapi: redis set meta_key failed", exc_info=True)
+
+            if cached_prices is None:
+                cached_prices = price_payload
+                if r is not None:
+                    try:
+                        await r.set(price_key, json.dumps(price_payload, default=str), ex=self._settings.ttl_hotel_prices)
+                    except Exception:  # pragma: no cover
+                        logger.warning("serpapi: redis set price_key failed", exc_info=True)
+
+        # Reconstruct properties using cached/retrieved metadata and prices
+        properties_meta = cached_meta.get("properties", [])
+        prices_map = cached_prices.get("prices", {})
+        reconstructed_properties = []
+        for prop in properties_meta:
+            prop_copy = dict(prop)
+            token = prop.get("property_token") or prop.get("name")
+            if token in prices_map:
+                prop_copy["rate_per_night"] = prices_map[token]
+            reconstructed_properties.append(prop_copy)
+        raw = {"properties": reconstructed_properties}
+
         hotels = _normalize_hotels(raw)
         cap = cap or self._settings.cap_hotels
         return hotels[:cap]
 
     async def search_places(self, *, city: str, query: str, cap: int | None = None) -> list[NormalizedPlace]:
         params = {"q": f"{query} in {city}"}
-        raw = await self._cached_fetch("google_maps", params, self._settings.ttl_places)
+        raw = await self._cached_fetch("google_maps", params, self._settings.ttl_place_metadata)
         places = _normalize_places(raw)
         cap = cap or self._settings.cap_spots
         return places[:cap]
@@ -238,7 +312,7 @@ class SerpApiClient:
         self, *, city: str, start_date: date, end_date: date, cap: int | None = None
     ) -> list[NormalizedEvent]:
         params = {"q": f"events in {city}", "start": start_date.isoformat(), "end": end_date.isoformat()}
-        raw = await self._cached_fetch("google_events", params, self._settings.ttl_places)
+        raw = await self._cached_fetch("google_events", params, self._settings.ttl_events)
         events = _normalize_events(raw)
         cap = cap or self._settings.cap_spots
         return events[:cap]

@@ -29,3 +29,56 @@ async def place_vibe_scores_for_city(city: str, country: str) -> list[dict]:
     except Exception:  # noqa: BLE001
         logger.warning("kg_read_failed", extra={"what": "place_vibe_scores_for_city"}, exc_info=True)
         return []
+
+
+async def find_similar_experiences(
+    vibes: list[str], threshold: float = 0.8, limit: int = 10
+) -> list[dict]:
+    try:
+        return await run_read(
+            queries.FIND_SIMILAR_EXPERIENCES,
+            {"vibes": vibes, "threshold": threshold, "limit": limit},
+        )
+    except Exception:  # noqa: BLE001
+        logger.warning("kg_read_failed", extra={"what": "find_similar_experiences"}, exc_info=True)
+        return []
+
+
+async def find_experienced_destinations(
+    vibes: list[str], threshold: float = 0.8, limit: int = 5
+) -> list[dict]:
+    try:
+        return await run_read(
+            queries.FIND_EXPERIENCED_DESTINATIONS,
+            {"vibes": vibes, "threshold": threshold, "limit": limit},
+        )
+    except Exception:  # noqa: BLE001
+        logger.warning("kg_read_failed", extra={"what": "find_experienced_destinations"}, exc_info=True)
+        return []
+
+
+async def find_experienced_places(
+    city: str, vibes: list[str], threshold: float = 0.8, country: str | None = None, limit: int = 10
+) -> list[dict]:
+    try:
+        return await run_read(
+            queries.FIND_EXPERIENCED_PLACES,
+            {"city": city, "country": country, "vibes": vibes, "threshold": threshold, "limit": limit},
+        )
+    except Exception:  # noqa: BLE001
+        logger.warning("kg_read_failed", extra={"what": "find_experienced_places"}, exc_info=True)
+        return []
+
+
+async def find_experienced_hotels(
+    city: str, vibes: list[str], threshold: float = 0.8, country: str | None = None, limit: int = 10
+) -> list[dict]:
+    try:
+        return await run_read(
+            queries.FIND_EXPERIENCED_HOTELS,
+            {"city": city, "country": country, "vibes": vibes, "threshold": threshold, "limit": limit},
+        )
+    except Exception:  # noqa: BLE001
+        logger.warning("kg_read_failed", extra={"what": "find_experienced_hotels"}, exc_info=True)
+        return []
+
