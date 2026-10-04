@@ -1,0 +1,37 @@
+{
+  "properties": [
+    {
+      "name": "Hotel Riverside",
+      "property_token": "prop-riverside-1",
+      "link": "https://example.com/hotel-riverside",
+      "gps_coordinates": {"latitude": 48.8566, "longitude": 2.3522},
+      "rate_per_night": {"extracted_lowest": 142.0, "currency": "USD"},
+      "overall_rating": 4.3,
+      "reviews_breakdown": [
+        {"snippet": "Great location, friendly staff, a bit noisy at night."}
+      ]
+    },
+    {
+      "name": "Boutique Stay Central",
+      "property_token": "prop-central-2",
+      "link": "https://example.com/boutique-stay-central",
+      "gps_coordinates": {"latitude": 48.8606, "longitude": 2.3376},
+      "rate_per_night": {"extracted_lowest": 95.0, "currency": "USD"},
+      "overall_rating": 4.0,
+      "reviews_breakdown": [
+        {"snippet": "Small rooms but very clean and well priced."}
+      ]
+    },
+    {
+      "name": "Grand Palace Hotel",
+      "property_token": "prop-grand-3",
+      "link": "https://example.com/grand-palace-hotel",
+      "gps_coordinates": {"latitude": 48.8738, "longitude": 2.295},
+      "rate_per_night": {"extracted_lowest": 310.0, "currency": "USD"},
+      "overall_rating": 4.8,
+      "reviews_breakdown": [
+        {"snippet": "Luxurious and spacious, worth the splurge."}
+      ]
+    }
+  ]
+}

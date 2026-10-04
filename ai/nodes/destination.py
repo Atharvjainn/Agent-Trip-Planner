@@ -59,12 +59,71 @@ def destination_node(state: TripState) -> TripState:
         }
         return state
 
+    if state.get("conversation_stage") == "collecting_departure_airport" and state.get("departure_airport_options"):
+        picked = llm.select_option(state["last_user_message"], state["departure_airport_options"])
+        if picked:
+            state["departure_airport"] = picked[0]["id"]
+        else:
+            state["turn_response"] = {
+                "reply": llm.build_reply(
+                    context={"options": state["departure_airport_options"]},
+                    instruction="Ask the user to pick one of the listed airport options or choose 'Any airport'.",
+                ),
+                "stage": "collecting_departure_airport",
+                "ui_component": "airport_options",
+                "options": state["departure_airport_options"],
+                "requires_user_input": True,
+                "input_type": "select_one",
+            }
+            return state
+
+    if not state.get("departure_airport"):
+        airport_options = services.fetch_departure_airport_options(state["departure_city"])
+        if not airport_options:
+            state["departure_city"] = None
+            state["conversation_stage"] = "collecting_departure"
+            state["turn_response"] = {
+                "reply": llm.build_reply(
+                    context={"invalid_departure": state.get("last_user_message")},
+                    instruction="Say that departure city/airport wasn't recognized and ask for a clearer city name or airport code.",
+                ),
+                "stage": "collecting_departure",
+                "ui_component": "text",
+                "options": [],
+                "requires_user_input": True,
+                "input_type": "free_text",
+            }
+            return state
+
+        if len(airport_options) == 1 and airport_options[0]["id"] == state["departure_city"].upper():
+            state["departure_airport"] = airport_options[0]["id"]
+        else:
+            any_option = {"id": "ANY", "name": "Any airport", "code": "ANY"}
+            options_to_show = airport_options + [any_option]
+            state["departure_airport_options"] = options_to_show
+            state["conversation_stage"] = "collecting_departure_airport"
+            state["turn_response"] = {
+                "reply": llm.build_reply(
+                    context={"departure_city": state["departure_city"], "options": options_to_show},
+                    instruction="Present these real airport options for the departure city, plus an 'Any airport' option, and ask the user to select one.",
+                ),
+                "stage": "collecting_departure_airport",
+                "ui_component": "airport_options",
+                "options": options_to_show,
+                "requires_user_input": True,
+                "input_type": "select_one",
+            }
+            return state
+
+    dep_id = state["departure_city"] if state.get("departure_airport") == "ANY" else (state.get("departure_airport") or state["departure_city"])
     interest = llm.classify_explore_interest(state["last_user_message"], state.get("vibe"))
     candidates = services.fetch_destination_recommendations(
-        state["departure_city"], interest=interest, currency=state["currency"]
+        dep_id, interest=interest, currency=state["currency"]
     )
 
     if candidates is None:
+        state["departure_city"] = None
+        state["departure_airport"] = None
         state["conversation_stage"] = "collecting_departure"
         state["turn_response"] = {
             "reply": llm.build_reply(

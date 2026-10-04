@@ -26,9 +26,8 @@ depending on it in production - SerpApi's exact fields can vary
 slightly by place/property type and do drift between updates.
 """
 from serpapi import GoogleSearch
-import config
-
-
+from app import config
+settings = config.get_settings()
 # ---------------------------------------------------------------- places --
 
 def search_attractions(query: str, lat: float | None = None, lon: float | None = None,
@@ -37,7 +36,7 @@ def search_attractions(query: str, lat: float | None = None, lon: float | None =
         "engine": "google_maps",
         "q": query,
         "type": "search",
-        "api_key": config.SERPAPI_KEY,
+        "api_key": settings.serpapi_key,
     }
     if lat is not None and lon is not None:
         params["ll"] = f"@{lat},{lon},{zoom}"
@@ -60,7 +59,7 @@ def search_tripadvisor(query: str) -> list:
     match - rather than a cross-check on every lookup, to keep this at
     one extra call on the rare miss instead of doubling every
     verification call."""
-    params = {"engine": "tripadvisor", "q": query, "api_key": config.SERPAPI_KEY}
+    params = {"engine": "tripadvisor", "q": query, "api_key": settings.serpapi_key}
     results = GoogleSearch(params).get_dict()
     return [_normalize_tripadvisor_place(loc) for loc in results.get("locations", [])]
 
@@ -78,7 +77,7 @@ def search_hotels(city: str, check_in: str, check_out: str, lat: float, lon: flo
         "currency": currency,  # NOTE: confirmed for google_travel_explore; not
                                  # explicitly confirmed for google_hotels during
                                  # research - verify against a live call.
-        "api_key": config.SERPAPI_KEY,
+        "api_key": settings.serpapi_key,
     }
     results = GoogleSearch(params).get_dict()
     return [_normalize_hotel(h, currency) for h in results.get("properties", [])]
@@ -94,7 +93,7 @@ def refresh_hotel_price(property_token: str, check_in: str, check_out: str,
         "check_in_date": check_in,
         "check_out_date": check_out,
         "currency": currency,
-        "api_key": config.SERPAPI_KEY,
+        "api_key": settings.serpapi_key,
     }
     results = GoogleSearch(params).get_dict()
     props = results.get("properties", [])
@@ -107,7 +106,7 @@ def search_flight_autocomplete(query: str) -> list:
     """Resolves free-text like 'Mumbai' into Google Travel's location
     IDs and airport codes - departure_id (Explore, Flights) can't take
     arbitrary city text directly, this is what makes it able to."""
-    params = {"engine": "google_flights_autocomplete", "q": query, "api_key": config.SERPAPI_KEY}
+    params = {"engine": "google_flights_autocomplete", "q": query, "api_key": settings.serpapi_key}
     results = GoogleSearch(params).get_dict()
     return results.get("suggestions", [])
 
@@ -128,6 +127,48 @@ def resolve_departure_id(city_text: str) -> str | None:
     return airports[0]["id"] if airports else None
 
 
+def resolve_airport_options(location_text: str) -> list:
+    """Resolves location text into real airport options via Google Flights
+    autocomplete. If location_text is already a 3-letter IATA code, returns
+    it directly."""
+    if len(location_text) == 3 and location_text.isupper():
+        return [{"id": location_text, "name": location_text, "code": location_text}]
+
+    suggestions = search_flight_autocomplete(location_text)
+    if not suggestions:
+        return []
+
+    options = []
+    seen_ids = set()
+
+    for item in suggestions:
+        airports = item.get("airports") or []
+        for apt in airports:
+            apt_id = apt.get("id") or apt.get("code")
+            apt_name = apt.get("title") or apt.get("name") or apt_id
+            if apt_id and apt_id not in seen_ids:
+                seen_ids.add(apt_id)
+                options.append({
+                    "id": apt_id,
+                    "name": f"{apt_id} - {apt_name}" if apt_name and not str(apt_name).startswith(apt_id) else (apt_name or apt_id),
+                    "code": apt_id,
+                })
+
+        item_id = item.get("id")
+        item_type = str(item.get("type") or "").lower()
+        if item_id and item_id not in seen_ids:
+            if item_type == "airport" or (len(item_id) == 3 and item_id.isupper()):
+                seen_ids.add(item_id)
+                item_name = item.get("title") or item.get("name") or item_id
+                options.append({
+                    "id": item_id,
+                    "name": f"{item_id} - {item_name}" if item_name and not str(item_name).startswith(item_id) else (item_name or item_id),
+                    "code": item_id,
+                })
+
+    return options
+
+
 def search_explore_destinations(departure_id: str, interest: str | None = None,
                                  currency: str = "USD", limit: int = 4) -> list:
     """Real destination recommendations - names, coordinates, images,
@@ -138,7 +179,7 @@ def search_explore_destinations(departure_id: str, interest: str | None = None,
         "engine": "google_travel_explore",
         "departure_id": departure_id,
         "currency": currency,
-        "api_key": config.SERPAPI_KEY,
+        "api_key": settings.serpapi_key,
     }
     if interest and interest != "0":
         params["interest"] = interest
@@ -159,7 +200,7 @@ def search_flights(departure_id: str, arrival_id: str, outbound_date: str,
         "arrival_id": arrival_id,
         "outbound_date": outbound_date,
         "currency": currency,
-        "api_key": config.SERPAPI_KEY,
+        "api_key": settings.serpapi_key,
     }
     if return_date:
         params["return_date"] = return_date
@@ -190,7 +231,7 @@ def get_directions(origin_lat: float, origin_lon: float, dest_lat: float, dest_l
         "start_coords": f"{origin_lat},{origin_lon}",
         "end_coords": f"{dest_lat},{dest_lon}",
         "travel_mode": travel_mode,
-        "api_key": config.SERPAPI_KEY,
+        "api_key": settings.serpapi_key,
     }
     results = GoogleSearch(params).get_dict()
     return _normalize_route(results)
@@ -198,7 +239,7 @@ def get_directions(origin_lat: float, origin_lon: float, dest_lat: float, dest_l
 
 # ---------------------------------------------------------------- events --
 
-def search_events(city: str, limit: int = config.MAX_EVENTS_SHOWN) -> list:
+def search_events(city: str, limit: int = settings.cap_events) -> list:
     """Real events (festivals, concerts, exhibitions) at a destination -
     used to enrich the itinerary reply, not to pick a destination.
     Filtering to a specific trip's exact dates wasn't confirmed as
@@ -206,7 +247,7 @@ def search_events(city: str, limit: int = config.MAX_EVENTS_SHOWN) -> list:
     date:today/date:tomorrow, not an arbitrary date range) - this
     returns whatever Google Events currently lists for the city, which
     in practice skews toward near-term events."""
-    params = {"engine": "google_events", "q": f"Events in {city}", "api_key": config.SERPAPI_KEY}
+    params = {"engine": "google_events", "q": f"Events in {city}", "api_key": settings.serpapi_key}
     results = GoogleSearch(params).get_dict()
     return [_normalize_event(e) for e in results.get("events_results", [])[:limit]]
 

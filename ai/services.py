@@ -72,6 +72,14 @@ def fetch_hotel_candidates(city: str, lat: float, lon: float, budget_total: floa
     return sorted(filtered, key=lambda h: h["distance_km_from_cluster"])[:limit]
 
 
+def fetch_departure_airport_options(location_text: str) -> list:
+    """
+    Thin wrapper around serpapi_client.resolve_airport_options to fetch
+    real airport options for a departure location string.
+    """
+    return serpapi_client.resolve_airport_options(location_text)
+
+
 def fetch_destination_recommendations(departure_city: str, interest: str | None = None,
                                        currency: str = "USD", limit: int = 4) -> list | None:
     """

@@ -1,0 +1,44 @@
+{
+  "local_results": [
+    {
+      "title": "Old Town Museum",
+      "place_id": "place-museum-1",
+      "link": "https://example.com/old-town-museum",
+      "gps_coordinates": {"latitude": 48.8534, "longitude": 2.3488},
+      "rating": 4.6,
+      "type": ["museum", "historic"]
+    },
+    {
+      "title": "Sunset Rooftop Bar",
+      "place_id": "place-bar-2",
+      "link": "https://example.com/sunset-rooftop-bar",
+      "gps_coordinates": {"latitude": 48.859, "longitude": 2.3417},
+      "rating": 4.4,
+      "type": ["bar", "nightlife", "lounge"]
+    },
+    {
+      "title": "Riverside Market",
+      "place_id": "place-market-3",
+      "link": "https://example.com/riverside-market",
+      "gps_coordinates": {"latitude": 48.851, "longitude": 2.356},
+      "rating": 4.2,
+      "type": ["market", "food"]
+    },
+    {
+      "title": "Quiet Garden Retreat",
+      "place_id": "place-garden-4",
+      "link": "https://example.com/quiet-garden-retreat",
+      "gps_coordinates": {"latitude": 48.863, "longitude": 2.337},
+      "rating": 4.1,
+      "type": ["garden", "park"]
+    },
+    {
+      "title": "Zephyrion Pavilion",
+      "place_id": "place-mystery-5",
+      "link": "https://example.com/zephyrion-pavilion",
+      "gps_coordinates": {"latitude": 48.857, "longitude": 2.349},
+      "rating": 3.9,
+      "type": ["point_of_interest"]
+    }
+  ]
+}
