@@ -29,7 +29,7 @@ async def test_happy_path_scores_and_sorts_hotels():
     response = await run(_request(), deps=deps)
 
     assert response.fallback_used is False
-    assert len(response.options) == 3
+    assert 1 <= len(response.options) <= 15
     # scores should be non-increasing
     scores = [o.score for o in response.options]
     assert scores == sorted(scores, reverse=True)

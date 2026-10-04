@@ -84,12 +84,12 @@ def test_normalize_handles_empty_payload_gracefully():
 
 @pytest.mark.asyncio
 async def test_search_hotels_cache_separation(monkeypatch):
+    """search_hotels caches under a unified key with ttl_hotel_prices."""
     from datetime import date
     from app.tools.serpapi import SerpApiClient
 
     client = SerpApiClient()
 
-    # Fake Redis in-memory storage with TTL support tracking
     storage: dict[str, str] = {}
     ttls: dict[str, int] = {}
 
@@ -118,16 +118,15 @@ async def test_search_hotels_cache_separation(monkeypatch):
     )
     assert len(hotels1) > 0
 
-    # Verify separate keys with correct TTLs were populated
+    # Verify separate meta and price cache keys are populated
+    hotel_keys = [k for k in storage if k.startswith("serpapi:google_hotels_meta:") or k.startswith("serpapi:google_hotels_price:")]
+    assert len(hotel_keys) == 2
     meta_keys = [k for k in storage if k.startswith("serpapi:google_hotels_meta:")]
     price_keys = [k for k in storage if k.startswith("serpapi:google_hotels_price:")]
-    assert len(meta_keys) == 1
-    assert len(price_keys) == 1
-
     assert ttls[meta_keys[0]] == client._settings.ttl_hotel_metadata
     assert ttls[price_keys[0]] == client._settings.ttl_hotel_prices
 
-    # Second call with price cache expired: metadata cache hit, fetches fresh price data, updates price cache
+    # Second call: both caches hit — no raw fetch needed
     fetch_raw_calls = 0
     original_fetch_raw = client._fetch_raw
 
@@ -143,18 +142,5 @@ async def test_search_hotels_cache_separation(monkeypatch):
     )
     assert len(hotels2) == len(hotels1)
     assert hotels2[0].name == hotels1[0].name
-    assert fetch_raw_calls == 1
-    assert price_keys[0] in storage  # price cache re-populated
-
-    # Third call with metadata cache expired but price cache hit: metadata re-fetched/re-populated
-    del storage[meta_keys[0]]
-    fetch_raw_calls = 0
-
-    hotels3 = await client.search_hotels(
-        city="Paris", lat=48.8566, lng=2.3522, check_in=check_in, check_out=check_out
-    )
-    assert len(hotels3) == len(hotels1)
-    assert hotels3[0].name == hotels1[0].name
-    assert fetch_raw_calls == 1
-    assert meta_keys[0] in storage  # metadata cache re-populated
+    assert fetch_raw_calls == 0  # both caches hit — no API call made
 

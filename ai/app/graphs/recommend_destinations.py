@@ -26,7 +26,11 @@ from app.schemas.destinations import (
     DestinationRecommendResponse,
 )
 from app.tools.serpapi import SerpApiClient
-from tools.serpapi_client import resolve_departure_id
+try:
+    from tools.serpapi_client import resolve_departure_id
+except Exception:  # noqa: BLE001
+    def resolve_departure_id(city_text: str) -> str | None:  # type: ignore[misc]
+        return city_text if (len(city_text) == 3 and city_text.isupper()) else None
 
 logger = logging.getLogger("services.ai.graphs.recommend_destinations")
 

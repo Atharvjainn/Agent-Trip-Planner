@@ -10,3 +10,5 @@ serapi
 fastapi
 uvicorn
 google-search-results
+geonamescache
+redis

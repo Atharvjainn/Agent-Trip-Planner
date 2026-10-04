@@ -31,6 +31,44 @@ from app.config import get_settings
 
 logger = logging.getLogger("services.ai.serpapi")
 
+import geonamescache as _geonamescache  # noqa: E402
+
+_GC = _geonamescache.GeonamesCache()
+
+
+def _resolve_country_from_city(city: str) -> str | None:
+    """
+    Resolve a city name to its country using local GeoNames data.
+    Return None when no reliable match is found.
+    """
+    if not city:
+        return None
+
+    city_normalized = city.strip().lower()
+
+    matches = [
+        c
+        for c in _GC.get_cities().values()
+        if c.get("name", "").strip().lower() == city_normalized
+    ]
+
+    if not matches:
+        return None
+
+    # Prefer the most populated matching city.
+    matches.sort(key=lambda c: c.get("population", 0), reverse=True)
+
+    country_code = matches[0].get("countrycode")
+    if not country_code:
+        return None
+
+    country = _GC.get_countries().get(country_code)
+    if not country:
+        return None
+
+    return country.get("name")
+
+
 SERPAPI_BASE_URL = "https://serpapi.com/search"
 
 Engine = str  # "google_flights" | "google_hotels" | "google_maps" | "google_maps_reviews" | "google_events"
@@ -166,22 +204,47 @@ class SerpApiClient:
     async def _cached_fetch(
         self, engine: Engine, params: dict[str, Any], ttl_seconds: int
     ) -> dict[str, Any]:
+        print("🔥 NEW SERPAPI CACHE CODE RUNNING")
         key = _cache_key(engine, params)
         r = await self._get_redis()
+        print("🔥 REDIS OBJECT:", r)
+
         if r is not None:
             try:
                 cached = await r.get(key)
+
                 if cached:
+                    print(
+                        f"[REDIS CACHE HIT] engine={engine} "
+                        f"key={key} ttl={ttl_seconds}s ({ttl_seconds / 3600:.1f}h)"
+                    )
                     return json.loads(cached)
-            except Exception:  # pragma: no cover - cache is best-effort
-                logger.warning("serpapi: redis get failed, continuing without cache", exc_info=True)
+
+                print(
+                    f"[REDIS CACHE MISS] engine={engine} "
+                    f"key={key} storing_for={ttl_seconds}s ({ttl_seconds / 3600:.1f}h)"
+                )
+
+            except Exception:
+                logger.warning(
+                    "serpapi: redis get failed, continuing without cache",
+                    exc_info=True,
+                )
 
         raw = await self._fetch_raw(engine, params)
 
         if r is not None:
             try:
-                await r.set(key, json.dumps(raw, default=str), ex=ttl_seconds)
-            except Exception:  # pragma: no cover
+                await r.set(
+                    key,
+                    json.dumps(raw, default=str),
+                    ex=ttl_seconds,
+                )
+                print(
+                    f"[REDIS CACHE STORED] engine={engine} "
+                    f"ttl={ttl_seconds}s ({ttl_seconds / 3600:.1f}h)"
+                )
+            except Exception:
                 logger.warning("serpapi: redis set failed", exc_info=True)
 
         return raw
@@ -299,6 +362,17 @@ class SerpApiClient:
 
         hotels = _normalize_hotels(raw)
         cap = cap or self._settings.cap_hotels
+        import asyncio
+        from app.kg.ingest import ingest_hotel
+        country = _resolve_country_from_city(city)
+        if country:
+            for hotel in hotels:
+                asyncio.create_task(_bg_ingest(ingest_hotel(hotel, city=city, country=country)))
+        else:
+            logger.warning(
+                "serpapi: could not resolve country for city=%s; skipping KG ingestion",
+                city,
+            )
         return hotels[:cap]
 
     async def search_places(self, *, city: str, query: str, cap: int | None = None) -> list[NormalizedPlace]:
@@ -306,16 +380,57 @@ class SerpApiClient:
         raw = await self._cached_fetch("google_maps", params, self._settings.ttl_place_metadata)
         places = _normalize_places(raw)
         cap = cap or self._settings.cap_spots
+        import asyncio
+        from app.kg.ingest import ingest_place
+        country = _resolve_country_from_city(city)
+        if country:
+            for place in places:
+                asyncio.create_task(_bg_ingest(ingest_place(place, city=city, country=country)))
+        else:
+            logger.warning(
+                "serpapi: could not resolve country for city=%s; skipping KG ingestion",
+                city,
+            )
         return places[:cap]
 
     async def search_events(
         self, *, city: str, start_date: date, end_date: date, cap: int | None = None
     ) -> list[NormalizedEvent]:
-        params = {"q": f"events in {city}", "start": start_date.isoformat(), "end": end_date.isoformat()}
-        raw = await self._cached_fetch("google_events", params, self._settings.ttl_events)
+        params = {"q": f"events in {city}"}
+
+        raw = await self._cached_fetch(
+            "google", params, self._settings.ttl_events
+        )
+
         events = _normalize_events(raw)
+
+        events = [
+            event for event in events
+            if event.date is not None
+            and start_date <= event.date <= end_date
+        ]
         cap = cap or self._settings.cap_spots
+        import asyncio
+        from app.kg.ingest import ingest_event
+        country = _resolve_country_from_city(city)
+        if country:
+            for event in events:
+                asyncio.create_task(_bg_ingest(ingest_event(event, city=city, country=country)))
+        else:
+            logger.warning(
+                "serpapi: could not resolve country for city=%s; skipping KG ingestion",
+                city,
+            )
         return events[:cap]
+
+
+
+async def _bg_ingest(coro: Any) -> None:
+    """Fire-and-forget wrapper. Ingestion errors are logged, never propagated."""
+    try:
+        await coro
+    except Exception:  # noqa: BLE001
+        logger.warning("serpapi: background KG ingestion failed", exc_info=True)
 
 
 # ---------------------------------------------------------------------------
