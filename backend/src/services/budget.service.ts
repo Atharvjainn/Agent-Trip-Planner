@@ -21,6 +21,16 @@ const DEFAULT_SPLIT_INTERNATIONAL: Record<string, number> = {
   buffer: 5,
 };
 
+import { selectionRepository } from '../repositories/selection.repository';
+
+export interface CategoryTracker {
+  category: string;
+  allocatedMinor: number;
+  spentMinor: number;
+  remainingMinor: number;
+  isOverBudget: boolean;
+}
+
 export class BudgetService {
   /**
    * Calculates fallback budget split to exact minor integer units ensuring the sum strictly equals budgetTotalMinor.
@@ -65,39 +75,75 @@ export class BudgetService {
       throw new NotFoundError('Trip not found');
     }
 
+    let allocations: CategoryAllocation[] = [];
+    let explanation: string | undefined = undefined;
+
     const rawAllocation = (trip as any).budgetAllocation;
     if (rawAllocation && typeof rawAllocation === 'object') {
       const stored = rawAllocation as any;
-      const allocations: CategoryAllocation[] = Array.isArray(stored.allocations)
+      const rawList: CategoryAllocation[] = Array.isArray(stored.allocations)
         ? stored.allocations
         : Array.isArray(stored)
         ? stored
         : [];
 
-      if (allocations.length > 0) {
-        return {
-          tripId: trip.id,
-          currency: stored.currency || trip.baseCurrency,
-          totalBudget: {
-            amountMinor: trip.budgetTotalMinor,
-            currency: trip.baseCurrency,
-          },
-          allocations,
-          explanation: stored.explanation || undefined,
-        };
+      if (rawList.length > 0) {
+        allocations = rawList;
+        explanation = stored.explanation || undefined;
       }
     }
 
-    const isInternational = Boolean(
-      trip.destinationCountry &&
-        !['india', 'in'].includes(trip.destinationCountry.toLowerCase().trim())
-    );
+    if (allocations.length === 0) {
+      const isInternational = Boolean(
+        trip.destinationCountry &&
+          !['india', 'in'].includes(trip.destinationCountry.toLowerCase().trim())
+      );
+      const fallback = this.calculateDefaultSplit(
+        trip.budgetTotalMinor,
+        trip.baseCurrency,
+        isInternational
+      );
+      allocations = fallback.allocations;
+      explanation = fallback.explanation;
+    }
 
-    const fallback = this.calculateDefaultSplit(
-      trip.budgetTotalMinor,
-      trip.baseCurrency,
-      isInternational
-    );
+    // Fetch selections to calculate spent per category
+    const selections = await selectionRepository.findByTripId(tripId);
+    const spentByCategory: Record<string, number> = {
+      flights: 0,
+      stay: 0,
+      local_commute: 0,
+      food: 0,
+      activities: 0,
+      buffer: 0,
+    };
+
+    for (const sel of selections) {
+      const conv = sel.convertedMoney as any;
+      const amountMinor = conv?.amountMinor || 0;
+      if (sel.type === 'flight') {
+        spentByCategory.flights += amountMinor;
+      } else if (sel.type === 'hotel') {
+        spentByCategory.stay += amountMinor;
+      } else if (sel.type === 'spot') {
+        spentByCategory.activities += amountMinor;
+      }
+    }
+
+    let totalSpentMinor = 0;
+    const tracker: CategoryTracker[] = allocations.map((alloc) => {
+      const allocatedMinor = alloc.amount.amountMinor;
+      const spentMinor = spentByCategory[alloc.category] || 0;
+      totalSpentMinor += spentMinor;
+      const remainingMinor = allocatedMinor - spentMinor;
+      return {
+        category: alloc.category,
+        allocatedMinor,
+        spentMinor,
+        remainingMinor,
+        isOverBudget: spentMinor > allocatedMinor,
+      };
+    });
 
     return {
       tripId: trip.id,
@@ -106,8 +152,18 @@ export class BudgetService {
         amountMinor: trip.budgetTotalMinor,
         currency: trip.baseCurrency,
       },
-      allocations: fallback.allocations,
-      explanation: fallback.explanation,
+      totalSpent: {
+        amountMinor: totalSpentMinor,
+        currency: trip.baseCurrency,
+      },
+      totalRemaining: {
+        amountMinor: trip.budgetTotalMinor - totalSpentMinor,
+        currency: trip.baseCurrency,
+      },
+      isOverBudget: totalSpentMinor > trip.budgetTotalMinor,
+      allocations,
+      tracker,
+      explanation,
     };
   }
 }

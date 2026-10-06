@@ -9,14 +9,31 @@ export interface CreateJobDto {
 }
 
 export class JobRepository {
-  async create(data: CreateJobDto) {
+  async create(
+    dataOrId: CreateJobDto | string,
+    tripId?: string,
+    userId?: string,
+    name?: string
+  ) {
+    if (typeof dataOrId === 'string') {
+      return prisma.job.create({
+        data: {
+          id: dataOrId,
+          tripId: tripId!,
+          userId: userId!,
+          name: name!,
+          status: 'queued',
+        },
+      });
+    }
+
     return prisma.job.create({
       data: {
-        id: data.id,
-        tripId: data.tripId,
-        userId: data.userId,
-        name: data.name,
-        status: data.status || 'queued',
+        id: dataOrId.id,
+        tripId: dataOrId.tripId,
+        userId: dataOrId.userId,
+        name: dataOrId.name,
+        status: dataOrId.status || 'queued',
       },
     });
   }
@@ -36,6 +53,22 @@ export class JobRepository {
       where: {
         id,
         userId,
+      },
+    });
+  }
+
+  async findLatestByTripAndName(tripId: string, name: string) {
+    return prisma.job.findFirst({
+      where: {
+        tripId,
+        name,
+      },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        name: true,
+        status: true,
+        error: true,
       },
     });
   }

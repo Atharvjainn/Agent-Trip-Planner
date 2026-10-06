@@ -18,3 +18,6 @@ redisConnection.on('connect', () => {
 redisConnection.on('error', (err) => {
   logger.error('Redis connection error:', { error: err.message });
 });
+
+export const redisClient = redisConnection;
+

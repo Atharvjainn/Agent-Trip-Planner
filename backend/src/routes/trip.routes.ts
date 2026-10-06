@@ -7,6 +7,7 @@ import { asyncHandler } from '../lib/async-handler';
 import destinationRouter from './destination.routes';
 import spotRouter from './spot.routes';
 import budgetRouter from './budget.routes';
+import flightRouter from './flight.routes';
 
 const router = Router();
 
@@ -28,5 +29,8 @@ router.get(
 router.use('/:id/destination', destinationRouter);
 router.use('/:id/spots', spotRouter);
 router.use('/:id/budget', budgetRouter);
+router.use('/:id/flights', flightRouter);
+router.use('/:id/flight', flightRouter);
 
 export default router;
+

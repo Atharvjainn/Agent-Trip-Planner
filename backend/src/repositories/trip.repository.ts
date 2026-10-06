@@ -40,6 +40,9 @@ export class TripRepository {
         id,
         userId,
       },
+      include: {
+        selections: true,
+      },
     });
   }
 
@@ -82,6 +85,15 @@ export class TripRepository {
       where: { id },
       data: {
         budgetAllocation,
+      } as any,
+    });
+  }
+
+  async updateFlightOptions(id: string, flightOptions: any) {
+    return prisma.trip.update({
+      where: { id },
+      data: {
+        flightOptions,
       } as any,
     });
   }

@@ -4,6 +4,7 @@ import { TRIP_QUEUE_NAME, TripJobPayload } from './jobs/queue';
 import { processRecommendDestinations } from './jobs/processors/recommend-destinations.processor';
 import { processDiscoverSpots } from './jobs/processors/discover-spots.processor';
 import { processEstimateBudget } from './jobs/processors/estimate-budget.processor';
+import { processSearchFlights } from './jobs/processors/search-flights.processor';
 import { jobRepository } from './repositories/job.repository';
 import { logger } from './lib/logger';
 
@@ -17,6 +18,8 @@ export const worker = new Worker<TripJobPayload>(
         return await processDiscoverSpots(job);
       case 'estimate-budget':
         return await processEstimateBudget(job);
+      case 'search-flights':
+        return await processSearchFlights(job);
       default:
         logger.warn(`Unknown job name: ${job.name}`);
         throw new Error(`Unknown job name: ${job.name}`);

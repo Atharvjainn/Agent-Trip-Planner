@@ -92,8 +92,14 @@ enum TripStatus {
   SUMMARY_READY
 }
 
+enum SelectionType {
+  spot
+  flight
+  hotel
+}
+
 // ============================================================
-// TRIP & JOB
+// TRIP, JOB & SELECTION
 // ============================================================
 
 model Trip {
@@ -120,8 +126,13 @@ model Trip {
   destinationOptions Json?
   spotOptions        Json?
   budgetAllocation   Json?
+  flightOptions      Json?
+  hotelOptions       Json?
+  savingSuggestions  Json?
+  summary            Json?
 
   jobs               Job[]
+  selections         Selection[]
 
   createdAt          DateTime   @default(now())
   updatedAt          DateTime   @updatedAt
@@ -148,4 +159,26 @@ model Job {
   @@index([tripId])
   @@index([userId])
   @@map("job")
+}
+
+model Selection {
+  id             String        @id @default(cuid())
+  tripId         String
+  trip           Trip          @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  type           SelectionType
+  providerId     String
+  providerName   String?
+  originalMoney  Json          // { amountMinor: number, currency: string }
+  convertedMoney Json          // { amountMinor: number, currency: string }
+  fxRate         Float         @default(1.0)
+  fxAt           DateTime      @default(now())
+  deepLink       String?
+  metadata       Json?
+
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([tripId])
+  @@index([tripId, type])
+  @@map("selection")
 }

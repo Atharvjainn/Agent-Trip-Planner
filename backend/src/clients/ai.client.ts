@@ -17,6 +17,12 @@ import {
   aiBudgetEstimateResponseSchema,
 } from '../schemas/budget.schema';
 
+import {
+  AIFlightSearchRequest,
+  AIFlightSearchResponse,
+  AIFlightSearchResponseSchema,
+} from '../schemas/flight.schema';
+
 class AIClient {
   private baseUrl: string;
   private internalKey: string;
@@ -89,6 +95,18 @@ class AIClient {
         errors: parsed.error.issues,
       });
       throw new BadGatewayError('Invalid response schema from budget estimation service');
+    }
+    return parsed.data;
+  }
+
+  async searchFlights(req: AIFlightSearchRequest): Promise<AIFlightSearchResponse> {
+    const data = await this.post('/internal/flights/search', req);
+    const parsed = AIFlightSearchResponseSchema.safeParse(data);
+    if (!parsed.success) {
+      logger.error('Invalid schema from /internal/flights/search:', {
+        errors: parsed.error.issues,
+      });
+      throw new BadGatewayError('Invalid response schema from flight search service');
     }
     return parsed.data;
   }
