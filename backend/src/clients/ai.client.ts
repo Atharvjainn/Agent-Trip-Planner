@@ -11,6 +11,11 @@ import {
   AIDiscoverSpotsResponse,
   aiDiscoverSpotsResponseSchema,
 } from '../schemas/spot.schema';
+import {
+  AIBudgetEstimateRequest,
+  AIBudgetEstimateResponse,
+  aiBudgetEstimateResponseSchema,
+} from '../schemas/budget.schema';
 
 class AIClient {
   private baseUrl: string;
@@ -20,7 +25,7 @@ class AIClient {
   constructor() {
     this.baseUrl = env.AI_BASE_URL.replace(/\/$/, '');
     this.internalKey = env.AI_INTERNAL_KEY;
-    this.timeoutMs = 45_000;
+    this.timeoutMs = 90_000;
   }
 
   private async post<T>(endpoint: string, body: unknown): Promise<unknown> {
@@ -72,6 +77,18 @@ class AIClient {
         errors: parsed.error.issues,
       });
       throw new BadGatewayError('Invalid response schema from spot discovery service');
+    }
+    return parsed.data;
+  }
+
+  async estimateBudget(req: AIBudgetEstimateRequest): Promise<AIBudgetEstimateResponse> {
+    const data = await this.post('/internal/budget/estimate', req);
+    const parsed = aiBudgetEstimateResponseSchema.safeParse(data);
+    if (!parsed.success) {
+      logger.error('Invalid schema from /internal/budget/estimate:', {
+        errors: parsed.error.issues,
+      });
+      throw new BadGatewayError('Invalid response schema from budget estimation service');
     }
     return parsed.data;
   }

@@ -208,12 +208,19 @@ async def node_rank(state: SpotState) -> dict:
     # Ingest in the background (ai/AGENT.md: "Ingest after each SerpApi
     # fetch, in the background. Ingestion failures are logged, never fail
     # the request" — kg_ingest.* already swallow+log their own errors).
-    for place in places:
-        await kg_ingest.ingest_place(place, city=req.city, country=req.country)
-        scores = tags_by_place.get(place.provider_ref.id, [])
-        await kg_ingest.ingest_place_vibe_scores(place.provider_ref.id, scores)
-    for event in events:
-        await kg_ingest.ingest_event(event, city=req.city, country=req.country)
+    async def _bg_ingest() -> None:
+        try:
+            for p in places:
+                await kg_ingest.ingest_place(p, city=req.city, country=req.country)
+                sc = tags_by_place.get(p.provider_ref.id, [])
+                await kg_ingest.ingest_place_vibe_scores(p.provider_ref.id, sc)
+            for ev in events:
+                await kg_ingest.ingest_event(ev, city=req.city, country=req.country)
+        except Exception:  # noqa: BLE001
+            pass
+
+    import asyncio
+    asyncio.create_task(_bg_ingest())
 
     return {"spots": spots}
 

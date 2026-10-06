@@ -39,20 +39,30 @@ export class DestinationService {
       TripStatus.DESTINATION_SELECTED
     );
 
-    const jobId = `job_${crypto.randomUUID()}`;
-
+    // Enqueue estimate-budget
+    const budgetJobId = `job_${crypto.randomUUID()}`;
     await jobRepository.create({
-      id: jobId,
+      id: budgetJobId,
+      tripId: trip.id,
+      userId,
+      name: 'estimate-budget',
+      status: 'queued',
+    });
+    await enqueueJob('estimate-budget', { tripId: trip.id, userId }, budgetJobId);
+
+    // Enqueue discover-spots
+    const spotsJobId = `job_${crypto.randomUUID()}`;
+    await jobRepository.create({
+      id: spotsJobId,
       tripId: trip.id,
       userId,
       name: 'discover-spots',
       status: 'queued',
     });
-
-    await enqueueJob('discover-spots', { tripId: trip.id, userId }, jobId);
+    await enqueueJob('discover-spots', { tripId: trip.id, userId }, spotsJobId);
 
     return {
-      jobId,
+      jobId: spotsJobId,
     };
   }
 }

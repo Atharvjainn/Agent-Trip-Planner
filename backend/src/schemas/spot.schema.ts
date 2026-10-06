@@ -42,3 +42,10 @@ export const aiDiscoverSpotsResponseSchema = z.object({
 });
 
 export type AIDiscoverSpotsResponse = z.infer<typeof aiDiscoverSpotsResponseSchema>;
+
+export const selectSpotsSchema = z.object({
+  spotIds: z.array(z.string().min(1)).min(1, 'Select at least one spot'),
+});
+
+export type SelectSpotsInput = z.infer<typeof selectSpotsSchema>;
+

@@ -77,6 +77,15 @@ export class TripRepository {
     });
   }
 
+  async updateBudgetAllocation(id: string, budgetAllocation: any) {
+    return prisma.trip.update({
+      where: { id },
+      data: {
+        budgetAllocation,
+      } as any,
+    });
+  }
+
   async updateStatus(id: string, status: TripStatus) {
     return prisma.trip.update({
       where: { id },

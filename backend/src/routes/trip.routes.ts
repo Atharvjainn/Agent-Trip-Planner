@@ -5,6 +5,8 @@ import { validate } from '../middlewares/validate';
 import { createTripSchema, tripParamsSchema } from '../schemas/trip.schema';
 import { asyncHandler } from '../lib/async-handler';
 import destinationRouter from './destination.routes';
+import spotRouter from './spot.routes';
+import budgetRouter from './budget.routes';
 
 const router = Router();
 
@@ -24,5 +26,7 @@ router.get(
 
 // Mount nested sub-routers
 router.use('/:id/destination', destinationRouter);
+router.use('/:id/spots', spotRouter);
+router.use('/:id/budget', budgetRouter);
 
 export default router;

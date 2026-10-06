@@ -14,7 +14,7 @@ interface UseJobOptions {
 export function useJob(jobId: string | null | undefined, options: UseJobOptions = {}) {
   const {
     pollingIntervalMs = 1500,
-    timeoutMs = 60000,
+    timeoutMs = 120000,
     onCompleted,
     onFailed,
   } = options;

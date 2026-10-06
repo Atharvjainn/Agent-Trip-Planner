@@ -58,3 +58,26 @@ export async function getJob(jobId: string): Promise<JobResponse> {
   const data = await apiFetch<unknown>(`/jobs/${jobId}`);
   return jobResponseSchema.parse(data);
 }
+
+export async function getTripBudget(tripId: string) {
+  return apiFetch<{
+    tripId: string;
+    currency: string;
+    totalBudget: { amountMinor: number; currency: string };
+    allocations: Array<{ category: string; amount: { amountMinor: number; currency: string } }>;
+    explanation?: string;
+  }>(`/trips/${tripId}/budget`);
+}
+
+export async function selectSpots(
+  tripId: string,
+  spotIds: string[]
+): Promise<{ tripId: string; status: string; selectedCount: number }> {
+  return apiFetch<{ tripId: string; status: string; selectedCount: number }>(
+    `/trips/${tripId}/spots`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ spotIds }),
+    }
+  );
+}

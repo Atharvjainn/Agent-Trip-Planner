@@ -30,23 +30,50 @@ export class TripService {
       status: initialStatus,
     });
 
-    const jobId = `job_${crypto.randomUUID()}`;
+    if (hasDestination) {
+      // Enqueue both estimate-budget and discover-spots
+      const budgetJobId = `job_${crypto.randomUUID()}`;
+      await jobRepository.create({
+        id: budgetJobId,
+        tripId: trip.id,
+        userId,
+        name: 'estimate-budget',
+        status: 'queued',
+      });
+      await enqueueJob('estimate-budget', { tripId: trip.id, userId }, budgetJobId);
 
-    await jobRepository.create({
-      id: jobId,
-      tripId: trip.id,
-      userId,
-      name: initialJobName,
-      status: 'queued',
-    });
+      const spotsJobId = `job_${crypto.randomUUID()}`;
+      await jobRepository.create({
+        id: spotsJobId,
+        tripId: trip.id,
+        userId,
+        name: 'discover-spots',
+        status: 'queued',
+      });
+      await enqueueJob('discover-spots', { tripId: trip.id, userId }, spotsJobId);
 
-    await enqueueJob(initialJobName, { tripId: trip.id, userId }, jobId);
+      return {
+        tripId: trip.id,
+        jobId: spotsJobId,
+        status: trip.status,
+      };
+    } else {
+      const jobId = `job_${crypto.randomUUID()}`;
+      await jobRepository.create({
+        id: jobId,
+        tripId: trip.id,
+        userId,
+        name: 'recommend-destinations',
+        status: 'queued',
+      });
+      await enqueueJob('recommend-destinations', { tripId: trip.id, userId }, jobId);
 
-    return {
-      tripId: trip.id,
-      jobId,
-      status: trip.status,
-    };
+      return {
+        tripId: trip.id,
+        jobId,
+        status: trip.status,
+      };
+    }
   }
 
   async getTripById(id: string, userId: string) {

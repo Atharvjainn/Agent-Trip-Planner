@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "dev:worker": "tsx watch src/worker.ts",
+    "test": "tsx src/services/budget.service.test.ts",
     "build": "tsc",
     "start": "node dist/index.js",
     "sync:enums": "node ../scripts/sync-enums.mjs",

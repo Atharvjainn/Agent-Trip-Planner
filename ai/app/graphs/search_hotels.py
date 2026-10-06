@@ -114,11 +114,18 @@ async def node_score(state: HotelState) -> dict:
     options.sort(key=lambda o: o.score, reverse=True)
     options = options[: settings.cap_hotels]
 
-    for hotel in hotels:
-        await kg_ingest.ingest_hotel(hotel, city=req.city, country="")
-    for hotel, dists in zip(hotels, distances_per_hotel, strict=True):
-        for spot, dist in zip(req.selected_spots, dists, strict=True):
-            await kg_ingest.ingest_hotel_near_place(hotel.provider_ref.id, spot.id, round(dist, 2))
+    async def _bg_ingest() -> None:
+        try:
+            for hotel in hotels:
+                await kg_ingest.ingest_hotel(hotel, city=req.city, country="")
+            for hotel, dists in zip(hotels, distances_per_hotel, strict=True):
+                for spot, dist in zip(req.selected_spots, dists, strict=True):
+                    await kg_ingest.ingest_hotel_near_place(hotel.provider_ref.id, spot.id, round(dist, 2))
+        except Exception:  # noqa: BLE001
+            pass
+
+    import asyncio
+    asyncio.create_task(_bg_ingest())
 
     return {"options": options}
 

@@ -119,6 +119,7 @@ model Trip {
 
   destinationOptions Json?
   spotOptions        Json?
+  budgetAllocation   Json?
 
   jobs               Job[]
 

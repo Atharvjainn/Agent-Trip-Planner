@@ -3,10 +3,11 @@
 import React, { useEffect, useState, useCallback, use } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { getTrip } from '../../../lib/api/trips';
-import { TripResponse } from '../../../lib/api/schemas';
+import { getTrip, selectSpots } from '../../../lib/api/trips';
+import { TripResponse, CategoryAllocation } from '../../../lib/api/schemas';
 import { useJob } from '../../../hooks/useJob';
 import { SpotCard } from '../../../components/trips/SpotCard';
+import { BudgetBreakdown } from '../../../components/trips/BudgetBreakdown';
 import { JobState } from '../../../components/trips/JobState';
 import { Button } from '../../../components/ui/Button';
 
@@ -24,6 +25,11 @@ export default function SpotsPage({
   const [loadingTrip, setLoadingTrip] = useState(true);
   const [tripError, setTripError] = useState<string | null>(null);
 
+  // Spot selection state
+  const [selectedSpotIds, setSelectedSpotIds] = useState<Set<string>>(new Set());
+  const [isSubmittingSelection, setIsSubmittingSelection] = useState(false);
+  const [selectionSuccess, setSelectionSuccess] = useState(false);
+
   const queryJobId = searchParams.get('jobId');
   const [activeJobId, setActiveJobId] = useState<string | null>(queryJobId);
 
@@ -39,7 +45,19 @@ export default function SpotsPage({
         return;
       }
 
-      if (!data.spotOptions && data.pendingJob) {
+      // Initialize selected spots if already saved
+      if (data.spotOptions) {
+        const initialSelected = new Set(
+          data.spotOptions
+            .filter((s) => s.isSelected)
+            .map((s) => s.providerRef.id || s.name)
+        );
+        if (initialSelected.size > 0) {
+          setSelectedSpotIds(initialSelected);
+        }
+      }
+
+      if ((!data.spotOptions || !data.budgetAllocation) && data.pendingJob) {
         setActiveJobId(data.pendingJob.id);
       }
     } catch (err: unknown) {
@@ -63,7 +81,18 @@ export default function SpotsPage({
           return;
         }
 
-        if (!data.spotOptions && data.pendingJob) {
+        if (data.spotOptions) {
+          const initialSelected = new Set(
+            data.spotOptions
+              .filter((s) => s.isSelected)
+              .map((s) => s.providerRef.id || s.name)
+          );
+          if (initialSelected.size > 0) {
+            setSelectedSpotIds(initialSelected);
+          }
+        }
+
+        if ((!data.spotOptions || !data.budgetAllocation) && data.pendingJob) {
           setActiveJobId(data.pendingJob.id);
         }
       } catch (err: unknown) {
@@ -91,11 +120,45 @@ export default function SpotsPage({
     }
   );
 
+  const toggleSpotSelection = (spotId: string) => {
+    setSelectedSpotIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(spotId)) {
+        next.delete(spotId);
+      } else {
+        next.add(spotId);
+      }
+      return next;
+    });
+  };
+
+  const handleContinue = async () => {
+    if (selectedSpotIds.size === 0) {
+      alert('Please select at least 1 spot to include in your trip.');
+      return;
+    }
+
+    setIsSubmittingSelection(true);
+    try {
+      await selectSpots(tripId, Array.from(selectedSpotIds));
+      setSelectionSuccess(true);
+      if (trip) {
+        setTrip({ ...trip, status: 'SPOTS_SELECTED' });
+      }
+      // Note: In Phase 3, this will navigate to /trips/:id/flight
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to save spot selections';
+      alert(msg);
+    } finally {
+      setIsSubmittingSelection(false);
+    }
+  };
+
   if (loadingTrip) {
     return (
       <JobState
         status="loading"
-        loadingMessage="Loading trip attractions..."
+        loadingMessage="Loading trip attractions and budget..."
       />
     );
   }
@@ -129,7 +192,7 @@ export default function SpotsPage({
     return (
       <JobState
         status="loading"
-        loadingMessage={`Finding the best spots in ${destinationLabel}...`}
+        loadingMessage={`Finding the best spots & calculating budget for ${destinationLabel}...`}
       />
     );
   }
@@ -151,32 +214,116 @@ export default function SpotsPage({
     );
   }
 
+  const budgetTotal = {
+    amountMinor: trip.budgetTotalMinor,
+    currency: trip.baseCurrency,
+  };
+
+  const allocations: CategoryAllocation[] = trip.budgetAllocation?.allocations || [];
+  const explanation = trip.budgetAllocation?.explanation;
+
   return (
-    <div className="py-4">
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-8">
+    <div className="py-4 pb-28">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-6">
         <div>
           <span className="text-xs font-bold uppercase tracking-wider text-indigo-600 bg-indigo-50 px-3 py-1 rounded-full">
-            Step 2 • Discover Spots
+            Step 2 • Budget Distribution & Spots
           </span>
           <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight mt-3">
-            Popular Spots in {destinationLabel}
+            Explore {destinationLabel}
           </h1>
           <p className="text-sm text-slate-600 mt-1">
-            Curated attractions and events tailored to your vibe preferences.
+            Review your budget allocation and select the attractions you&apos;d love to visit.
           </p>
         </div>
 
         <div className="flex items-center gap-2">
-          <span className="text-xs bg-slate-100 text-slate-600 px-3 py-1.5 rounded-xl font-medium">
-            {spots.length} spots discovered
+          <span className="text-xs bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-xl font-semibold border border-indigo-100">
+            {selectedSpotIds.size} of {spots.length} selected
           </span>
         </div>
       </div>
 
+      {/* Budget Allocation Panel */}
+      {allocations.length > 0 && (
+        <div className="mb-8">
+          <BudgetBreakdown
+            totalBudget={budgetTotal}
+            allocations={allocations}
+            explanation={explanation}
+          />
+        </div>
+      )}
+
+      {/* Spot Selection Section */}
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <h3 className="text-xl font-bold text-slate-900">Must-Visit Spots</h3>
+          <p className="text-xs text-slate-500 mt-0.5">Click any card to select/deselect it for your itinerary</p>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-        {spots.map((spot) => (
-          <SpotCard key={spot.providerRef.id || spot.name} spot={spot} />
-        ))}
+        {spots.map((spot) => {
+          const spotId = spot.providerRef.id || spot.name;
+          const isSelected = selectedSpotIds.has(spotId);
+
+          return (
+            <SpotCard
+              key={spotId}
+              spot={spot}
+              selectable
+              selected={isSelected}
+              onToggleSelect={() => toggleSpotSelection(spotId)}
+            />
+          );
+        })}
+      </div>
+
+      {/* Sticky Bottom Action Bar */}
+      <div className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/90 py-4 px-6 shadow-2xl">
+        <div className="max-w-6xl mx-auto flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold text-sm shadow-md shadow-indigo-200">
+              {selectedSpotIds.size}
+            </div>
+            <div>
+              <p className="text-sm font-bold text-slate-900">
+                {selectedSpotIds.size === 1 ? '1 Spot Selected' : `${selectedSpotIds.size} Spots Selected`}
+              </p>
+              <p className="text-xs text-slate-500">
+                {trip.status === 'SPOTS_SELECTED' || selectionSuccess
+                  ? '✓ Spot selections saved! Ready for Phase 3 (Flights)'
+                  : 'Select at least 1 spot to continue'}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            {selectedSpotIds.size > 0 && (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setSelectedSpotIds(new Set())}
+              >
+                Clear
+              </Button>
+            )}
+
+            <Button
+              variant="primary"
+              size="md"
+              disabled={selectedSpotIds.size === 0}
+              isLoading={isSubmittingSelection}
+              onClick={handleContinue}
+            >
+              {trip.status === 'SPOTS_SELECTED' || selectionSuccess
+                ? 'Update Selections ✓'
+                : `Save & Continue (${selectedSpotIds.size}) →`}
+            </Button>
+          </div>
+        </div>
       </div>
     </div>
   );

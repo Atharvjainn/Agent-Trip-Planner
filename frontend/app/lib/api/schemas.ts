@@ -33,6 +33,24 @@ export const ProviderRefSchema = z.object({
   deepLink: z.string().nullable().optional(),
 });
 
+// Budget Allocation
+export const categoryAllocationSchema = z.object({
+  category: BudgetCategorySchema,
+  amount: MoneySchema,
+});
+
+export type CategoryAllocation = z.infer<typeof categoryAllocationSchema>;
+
+export const tripBudgetResponseSchema = z.object({
+  tripId: z.string(),
+  currency: z.string(),
+  totalBudget: MoneySchema,
+  allocations: z.array(categoryAllocationSchema),
+  explanation: z.string().optional(),
+});
+
+export type TripBudgetResponse = z.infer<typeof tripBudgetResponseSchema>;
+
 // Trip Creation
 export const createTripSchema = z
   .object({
@@ -109,9 +127,16 @@ export const spotOptionSchema = z.object({
   vibeScores: z.array(spotVibeScoreSchema),
   matchingEvent: spotEventSchema.nullable().optional(),
   tagSource: z.string(),
+  isSelected: z.boolean().optional(),
 });
 
 export type SpotOption = z.infer<typeof spotOptionSchema>;
+
+export const selectSpotsSchema = z.object({
+  spotIds: z.array(z.string().min(1)).min(1, 'Select at least one spot'),
+});
+
+export type SelectSpotsInput = z.infer<typeof selectSpotsSchema>;
 
 // Job response
 export const jobResponseSchema = z.object({
@@ -139,6 +164,17 @@ export const tripResponseSchema = z.object({
   baseCurrency: z.string(),
   destinationOptions: z.array(destinationOptionSchema).nullable().optional(),
   spotOptions: z.array(spotOptionSchema).nullable().optional(),
+  budgetAllocation: z
+    .object({
+      tripId: z.string().optional(),
+      currency: z.string().optional(),
+      allocations: z.array(categoryAllocationSchema),
+      explanation: z.string().optional(),
+      fallbackUsed: z.boolean().optional(),
+    })
+    .passthrough()
+    .nullable()
+    .optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
   pendingJob: z
