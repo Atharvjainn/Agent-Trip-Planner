@@ -16,7 +16,9 @@ value into the query string.
 from __future__ import annotations
 
 MERGE_CITY = """
-MERGE (c:City {name: $name, country: $country})
+MERGE (c:City {name: $name})
+ON CREATE SET c.country = $country
+ON MATCH SET c.country = $country
 RETURN c
 """
 

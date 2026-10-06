@@ -1,3 +1,5 @@
+from __future__ import annotations
+import os
 """
 Single entry point for every model call in this codebase. Two different
 kinds of calls live here, matched to what OpenJev actually is:
@@ -20,7 +22,7 @@ MODEL TIERS - by task complexity, not one model for everything:
                     vs "replace what's planned" vs "extend the trip" is
                     a genuinely harder call than routing a greeting, and
                     gets the model that can actually reason about it.
-  GENERATION_MODEL gemini-2.5-flash - free text + tool-call extraction.
+  GENERATION_MODEL gemini-3.1-flash-lite - free text + tool-call extraction.
                     Reached via Gemini's OpenAI-compatible endpoint, so
                     `generate()` below is unchanged; only the client's
                     base_url/api_key and the model string differ from the
@@ -36,18 +38,20 @@ something already in progress); classify_adjustment_type then asks the
 harder question - *which kind* of adjustment - using the full trip
 context, not conversation_stage, as the signal.
 """
-from __future__ import annotations
 import json
+import logging
 from datetime import date
 from typesafe_sdk import TypeSafeClient
 from openai import OpenAI
 
 import config
 
+logger = logging.getLogger("openjev")
+
 FAST_MODEL = "verdict-1.4"
 STANDARD_MODEL = "laya-1.0"
 REASONING_MODEL = "openjev-latest"
-GENERATION_MODEL = "gemini-2.5-flash"
+GENERATION_MODEL = "gemini-3.8-flash"
 
 _decision_client = TypeSafeClient(
     base_url=config.TYPESAFE_BASE_URL, api_key=config.TYPESAFE_API_KEY
@@ -57,48 +61,175 @@ _decision_client = TypeSafeClient(
 # and everything built on it (build_reply, extract_trip_slots) needs no
 # other changes.
 _generation_client = OpenAI(
-    base_url=config.GEMINI_BASE_URL, api_key=config.GEMINI_API_KEY
+    base_url=config.GEMINI_BASE_URL, api_key=config.GEMINI_API_KEY, max_retries=0
 )
 
 
 # ---------------------------------------------------------------- core --
 
+def _decide_fallback(state: str, questions: dict) -> dict:
+    """Fallback path using the generative LLM when OpenJev is unavailable
+    or returns confidence below the configured threshold.
+    Never logs API keys or user secrets."""
+    lines = [f"Context: {state}", "", "Answer these classification questions as JSON:"]
+    for qid, spec in questions.items():
+        q_type = spec["type"]
+        instr = spec.get("instructions", "")
+        if q_type == "choice":
+            opts = ", ".join(spec["criteria"].keys())
+            lines.append(f"- {qid}: Pick one of [{opts}]. {instr}")
+        elif q_type == "noul":
+            lines.append(f"- {qid}: true or false. {instr}")
+        elif q_type == "score":
+            lines.append(f"- {qid}: integer rating. {instr}")
+    lines.append("")
+    lines.append("Return ONLY a JSON object mapping each key to its value.")
+    prompt = "\n".join(lines)
+
+    try:
+        response = generate([{"role": "user", "content": prompt}], max_tokens=150)
+        content = response.content.strip()
+        if content.startswith("```json"):
+            content = content[7:]
+        if content.endswith("```"):
+            content = content[:-3]
+        parsed = json.loads(content.strip())
+        return {"values": parsed, "confidences": {k: 1.0 for k in parsed}}
+    except Exception as exc:
+        logger.warning("Fallback execution failed: %s", type(exc).__name__)
+        # Safe defaults so callers never receive a KeyError
+        values, confidences = {}, {}
+        for qid, spec in questions.items():
+            q_type = spec["type"]
+            if q_type == "choice":
+                keys = list(spec["criteria"].keys())
+                values[qid] = keys[0] if keys else "none"
+            elif q_type == "noul":
+                values[qid] = False
+            else:  # score
+                values[qid] = 0
+            confidences[qid] = 0.0
+        return {"values": values, "confidences": confidences}
+
+
 def decide(state: str, questions: dict, model: str = FAST_MODEL, think: int | None = None) -> dict:
-    """
-    Thin wrapper over OpenJev's typed-decision endpoint. Returns
-    {"values": {qid: value}, "confidences": {qid: 0-1}}.
+    """Wrapper over OpenJev's typed-decision endpoint.
+
+    Returns {"values": {qid: value}, "confidences": {qid: 0-1}}.
+
+    Behaviour:
+    - Calls OpenJev (TypeSafeClient.system_one).
+    - If *any* answer confidence < config.OPENJEV_CONFIDENCE_THRESHOLD, the
+      whole batch is re-decided via the generative fallback path.
+    - If OpenJev raises *any* exception (network error, auth, rate-limit…),
+      falls back gracefully without surfacing an error to callers.
+    - Logs decision outcomes at INFO; logs fallback triggers at WARNING.
+      API keys and user trip details are never logged.
     """
     kwargs = {"model": model}
     if think:
         kwargs["think"] = think
-    result = _decision_client.system_one(state, questions, **kwargs)
 
-    values, confidences = {}, {}
-    for qid, spec in questions.items():
-        if spec["type"] == "noul":
-            p_yes = result.nouls[qid].noul
-            values[qid] = p_yes >= 0.5
-            confidences[qid] = p_yes if values[qid] else 1 - p_yes
-        elif spec["type"] == "choice":
-            values[qid] = result.choices[qid].choice
-            confidences[qid] = result.choices[qid].confidence
-        elif spec["type"] == "score":
-            values[qid] = result.scores[qid].score
-            confidences[qid] = result.scores[qid].confidence
-        else:
-            raise ValueError(f"Unknown OpenJev question type: {spec['type']}")
-    return {"values": values, "confidences": confidences}
+    try:
+        import time
+        result = None
+        for attempt in range(5):
+            try:
+                result = _decision_client.system_one(state, questions, **kwargs)
+                break
+            except Exception as exc:
+                err_str = str(exc)
+                if ("429" in err_str or "529" in err_str or "RateLimit" in err_str or "RESOURCE_EXHAUSTED" in err_str or "unavailable" in err_str) and attempt < 3:
+                    sleep_sec = 5 * (attempt + 1)
+                    logger.warning("OpenJev transient error (attempt %d/4), sleeping %ds: %s", attempt + 1, sleep_sec, err_str[:100])
+                    time.sleep(sleep_sec)
+                    continue
+                logger.warning("OpenJev client failed with %s: %s. Falling back to generative LLM.", type(exc).__name__, err_str[:150])
+                return _decide_fallback(state, questions)
+
+        values: dict = {}
+        confidences: dict = {}
+        low_confidence = False
+        threshold = config.OPENJEV_CONFIDENCE_THRESHOLD
+
+        for qid, spec in questions.items():
+            q_type = spec["type"]
+            answer = result.answers[qid]
+
+            if q_type == "noul":
+                p_yes = answer.noul
+                values[qid] = p_yes >= 0.5
+                conf = p_yes if values[qid] else 1.0 - p_yes
+
+            elif q_type == "choice":
+                values[qid] = answer.choice
+                conf = answer.confidence
+
+            elif q_type == "score":
+                values[qid] = answer.score
+                conf = answer.confidence
+
+            else:
+                raise ValueError(f"Unknown OpenJev question type: {q_type}")
+
+            confidences[qid] = conf
+            if conf < threshold:
+                low_confidence = True
+
+        if low_confidence:
+            logger.info(
+                "OpenJev confidence below threshold %.2f for one or more questions "
+                "(model=%s). Triggering generative fallback.",
+                threshold,
+                model,
+            )
+            return _decide_fallback(state, questions)
+
+        logger.info(
+            "OpenJev decision succeeded [model=%s, questions=%s]",
+            model,
+            list(questions.keys()),
+        )
+        return {"values": values, "confidences": confidences}
+
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        raise
 
 
 def generate(messages: list, model: str = GENERATION_MODEL, tools: list | None = None,
              max_tokens: int = 512):
     """Free-form generation / tool-calling extraction. Returns the raw
     message object (.content and/or .tool_calls)."""
+    import time
     kwargs = {"model": model, "messages": messages, "max_tokens": max_tokens}
     if tools:
         kwargs["tools"] = tools
-    response = _generation_client.chat.completions.create(**kwargs)
-    return response.choices[0].message
+    for attempt in range(2):
+        try:
+            response = _generation_client.chat.completions.create(**kwargs)
+            return response.choices[0].message
+        except Exception as exc:
+            err_str = str(exc)
+            if ("429" in err_str or "RateLimit" in err_str or "RESOURCE_EXHAUSTED" in err_str) and attempt < 1:
+                sleep_sec = 2 * (attempt + 1)
+                logger.warning("Rate limit hit in generate() (attempt %d/2), sleeping %ds: %s", attempt + 1, sleep_sec, err_str[:100])
+                time.sleep(sleep_sec)
+                continue
+            groq_key = os.getenv("GROQ_API_KEY")
+            if groq_key:
+                try:
+                    from openai import OpenAI
+                    groq_client = OpenAI(base_url="https://api.groq.com/openai/v1", api_key=groq_key)
+                    groq_kwargs = dict(kwargs)
+                    groq_kwargs["model"] = "qwen/qwen3.8-27b"
+                    res = groq_client.chat.completions.create(**groq_kwargs)
+                    logger.info("Groq fallback successful for generate()")
+                    return res.choices[0].message
+                except Exception as groq_exc:
+                    logger.warning("Groq fallback failed: %s", groq_exc)
+            raise
 
 
 # ------------------------------------------------------- history context --

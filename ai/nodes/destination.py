@@ -158,7 +158,24 @@ def destination_node(state: TripState) -> TripState:
 
 def _fill_known_slots(state: TripState) -> None:
     slots = llm.extract_trip_slots(state["last_user_message"])
-    for key in ("destination_city", "departure_city", "budget_total", "duration_days"):
+
+    # When we're specifically waiting for a departure city, re-interpret
+    # any extracted city (bare replies like "Mumbai" are classified as
+    # destination_city by the extractor because there's no context saying
+    # it's a departure) as departure_city, and stop it from being written
+    # to destination_city in the loop below.
+    if (
+        state.get("conversation_stage") == "collecting_departure"
+        and not state.get("departure_city")
+    ):
+        city = slots.get("departure_city") or slots.get("destination_city")
+        if city:
+            slots = dict(slots)          # don't mutate the original
+            slots["departure_city"] = city
+            slots.pop("destination_city", None)  # prevent incorrect destination assignment
+
+    for key in ("destination_city", "departure_city", "budget_total", "duration_days",
+                "outbound_date", "return_date"):
         if slots.get(key) is not None and not state.get(key):
             state[key] = slots[key]
 

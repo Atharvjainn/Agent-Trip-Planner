@@ -204,10 +204,10 @@ class SerpApiClient:
     async def _cached_fetch(
         self, engine: Engine, params: dict[str, Any], ttl_seconds: int
     ) -> dict[str, Any]:
-        print("🔥 NEW SERPAPI CACHE CODE RUNNING")
+        print("[SERPAPI CACHE] NEW SERPAPI CACHE CODE RUNNING")
         key = _cache_key(engine, params)
         r = await self._get_redis()
-        print("🔥 REDIS OBJECT:", r)
+        print("[SERPAPI] REDIS OBJECT:", r)
 
         if r is not None:
             try:
@@ -255,9 +255,13 @@ class SerpApiClient:
 
         query = {**params, "engine": engine, "api_key": self._settings.serpapi_key}
         async with httpx.AsyncClient(timeout=20.0) as client:
-            resp = await client.get(SERPAPI_BASE_URL, params=query)
-            resp.raise_for_status()
-            return resp.json()
+            try:
+                resp = await client.get(SERPAPI_BASE_URL, params=query)
+                resp.raise_for_status()
+                return resp.json()
+            except Exception as exc:
+                logger.warning("serpapi: HTTP/network error for engine=%s: %s, falling back to fixture", engine, exc)
+                return _load_fixture(self._settings.fixtures_dir, engine, params)
 
     # -- public, per-engine methods -----------------------------------
 
@@ -539,11 +543,13 @@ def _normalize_events(raw: dict[str, Any]) -> list[NormalizedEvent]:
     for item in raw.get("events_results", []) or []:
         when = item.get("date", {})
         venue = item.get("venue", {})
+        event_date_str = when.get("start_date") if isinstance(when, dict) else (when if isinstance(when, str) else None)
+        venue_name = venue.get("name") if isinstance(venue, dict) else (venue if isinstance(venue, str) else None)
         out.append(
             NormalizedEvent(
                 name=item.get("title", "Unknown event"),
-                date=_parse_date(when.get("start_date")),
-                venue=venue.get("name"),
+                date=_parse_date(event_date_str),
+                venue=venue_name,
             )
         )
     return out

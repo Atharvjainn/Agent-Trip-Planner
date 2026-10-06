@@ -11,7 +11,7 @@ from dataclasses import dataclass
 PRICE_FIT_WEIGHT = 0.45
 PROXIMITY_WEIGHT = 0.35
 RATING_WEIGHT = 0.20
-
+    
 assert abs(PRICE_FIT_WEIGHT + PROXIMITY_WEIGHT + RATING_WEIGHT - 1.0) < 1e-9
 
 

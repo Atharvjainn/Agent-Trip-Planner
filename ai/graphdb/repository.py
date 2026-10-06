@@ -24,14 +24,34 @@ from graphdb.connection import get_driver
 # during this review rather than at the next live write. Serialized to
 # a JSON string on write, parsed back on read; every other field passes
 # through unchanged.
-_JSON_ENCODED_FIELDS = ("operating_hours",)
+_JSON_ENCODED_FIELDS = ("operating_hours", "extensions")
+
+
+def _sanitize_value(v):
+    """Recursively reduce v to something Neo4j can store:
+    primitive, list-of-primitives, or JSON string."""
+    if isinstance(v, (str, int, float, bool)) or v is None:
+        return v
+    if isinstance(v, list):
+        # Allowed only if every element is a primitive
+        if all(isinstance(i, (str, int, float, bool)) or i is None for i in v):
+            return v
+        # Mixed or nested list — JSON-encode it
+        return json.dumps(v)
+    # Any other type (dict, etc.) → JSON string
+    return json.dumps(v)
 
 
 def _encode_for_graph(props: dict) -> dict:
     encoded = dict(props)
+    # First pass: JSON-encode fields we always want as strings
     for field in _JSON_ENCODED_FIELDS:
         if encoded.get(field) is not None:
             encoded[field] = json.dumps(encoded[field])
+    # Second pass: sanitize anything else that isn't a Neo4j-safe primitive
+    for k, v in list(encoded.items()):
+        if k not in _JSON_ENCODED_FIELDS:
+            encoded[k] = _sanitize_value(v)
     return encoded
 
 
