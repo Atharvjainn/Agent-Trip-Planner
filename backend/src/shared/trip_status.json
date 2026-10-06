@@ -1,0 +1,12 @@
+{
+  "description": "Canonical TripStatus enum (root AGENTS.md §1). Never invent new statuses in app code.",
+  "values": [
+    "DRAFT",
+    "DESTINATION_SELECTED",
+    "BUDGET_ESTIMATED",
+    "SPOTS_SELECTED",
+    "FLIGHT_SELECTED",
+    "HOTEL_SELECTED",
+    "SUMMARY_READY"
+  ]
+}

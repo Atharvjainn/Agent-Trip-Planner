@@ -1,10 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { authClient, useSession, signIn, signUp, signOut } from "./lib/auth-client";
+import { useSession, signIn, signUp, signOut } from "./lib/auth-client";
 
 export default function Home() {
-  const { data: session, isPending, error: sessionError, refetch } = useSession();
+  const { data: session, isPending, refetch } = useSession();
 
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [name, setName] = useState("");
@@ -13,7 +13,7 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
-  const [protectedData, setProtectedData] = useState<any>(null);
+  const [protectedData, setProtectedData] = useState<unknown>(null);
   const [loadingProtected, setLoadingProtected] = useState(false);
 
   const resetStatus = () => {
@@ -26,7 +26,7 @@ export default function Home() {
     resetStatus();
     setLoading(true);
 
-    const res = await signUp.email(
+    await signUp.email(
       {
         email,
         password,
@@ -85,10 +85,11 @@ export default function Home() {
       });
       const data = await res.json();
       setProtectedData(data);
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Network error while calling /api/me";
       setProtectedData({
         status: "error",
-        message: err.message || "Network error while calling /api/me",
+        message: msg,
       });
     } finally {
       setLoadingProtected(false);
@@ -116,10 +117,10 @@ export default function Home() {
             ✈️
           </div>
           <h1 className="text-2xl font-bold tracking-tight text-white">
-            Travel Planner Auth
+            Travel Planner
           </h1>
           <p className="text-sm text-neutral-400">
-            Better Auth & Express Backend Integration Test
+            Better Auth & Express Backend Integration
           </p>
         </div>
 
@@ -165,12 +166,20 @@ export default function Home() {
               </div>
             </div>
 
+            {/* Travel Planner Action */}
+            <a
+              href="/trips/new"
+              className="block w-full py-3 px-4 text-center bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-semibold rounded-xl transition duration-150 shadow-lg shadow-indigo-600/25"
+            >
+              Start Planning Trip →
+            </a>
+
             {/* Actions */}
             <div className="grid grid-cols-2 gap-3">
               <button
                 onClick={testProtectedRoute}
                 disabled={loadingProtected}
-                className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-medium rounded-xl transition duration-150 shadow-lg shadow-indigo-600/20"
+                className="w-full py-2.5 px-4 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-sm font-medium rounded-xl border border-neutral-700 transition duration-150"
               >
                 {loadingProtected ? "Calling..." : "Test GET /api/me"}
               </button>
@@ -183,7 +192,7 @@ export default function Home() {
             </div>
 
             {/* Protected Route Output */}
-            {protectedData && (
+            {Boolean(protectedData) && (
               <div className="space-y-2">
                 <p className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">
                   Backend Response (/api/me)

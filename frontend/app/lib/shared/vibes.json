@@ -1,0 +1,15 @@
+{
+  "description": "Fixed list of vibe tags. Adding a tag means editing this file only — both apps/web, apps/api, and services/ai load from here.",
+  "values": [
+    "adventure",
+    "relaxed",
+    "nightlife",
+    "culture_heritage",
+    "spiritual",
+    "food",
+    "nature",
+    "shopping",
+    "family",
+    "romantic"
+  ]
+}
