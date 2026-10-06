@@ -100,8 +100,9 @@ class TripState(TypedDict):
     user_id: Optional[str]
     conversation_stage: Literal[
         "start", "collecting_departure", "collecting_departure_airport", "collecting_destination", "collecting_attractions",
-        "collecting_hotel", "itinerary_ready", "trip_active",
+        "collecting_hotel", "confirming_hotel", "itinerary_ready", "trip_active",
         "collecting_flight_departure", "collecting_flight_date",
+        "confirming_flight",
     ]
     last_user_message: str
 
@@ -114,6 +115,8 @@ class TripState(TypedDict):
     budget_total: Optional[float]
     duration_days: Optional[int]
     currency: str
+    outbound_date: Optional[str]   # YYYY-MM-DD; persisted from initial slot extraction
+    return_date: Optional[str]     # YYYY-MM-DD; None for one-way
 
     # working data
     destination_candidates: list

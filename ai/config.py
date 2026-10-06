@@ -21,6 +21,7 @@ OPENWEATHER_KEY = os.environ.get("OPENWEATHER_KEY", "")
 # endpoint, or your own vLLM/MLX server.
 TYPESAFE_BASE_URL = os.environ.get("TYPESAFE_BASE_URL", "https://api.codiv.ai")
 TYPESAFE_API_KEY = os.environ.get("TYPESAFE_API_KEY", "")
+OPENJEV_CONFIDENCE_THRESHOLD = float(os.environ.get("OPENJEV_CONFIDENCE_THRESHOLD", "0.85"))
 
 # Gemini (free-form generation + tool-calling extraction), reached through
 # Google's OpenAI-compatible endpoint so llm.py's existing `openai.OpenAI`

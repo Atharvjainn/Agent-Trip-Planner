@@ -59,6 +59,28 @@ def adjust_node(state: TripState) -> TripState:
 
 def _handle_nearby_exploration(state: TripState) -> TripState:
     loc = state.get("user_location")
+    # T5: if no stored location, try to extract one from this message
+    # (e.g. "near Baga Beach" → geocode via SerpApi to lat/lon)
+    if not loc:
+        slots = llm.extract_trip_slots(state["last_user_message"])
+        raw_loc = slots.get("current_location")
+        if isinstance(raw_loc, dict) and "lat" in raw_loc and "lon" in raw_loc:
+            loc = raw_loc
+        elif isinstance(raw_loc, str) and raw_loc:
+            match = next((a for a in state.get("confirmed_attractions", []) if raw_loc.lower() in a.get("name", "").lower() or a.get("name", "").lower() in raw_loc.lower()), None)
+            if match and "lat" in match and "lon" in match:
+                loc = {"lat": match["lat"], "lon": match["lon"], "name": match["name"]}
+            elif state.get("confirmed_hotel") and "lat" in state["confirmed_hotel"]:
+                loc = {"lat": state["confirmed_hotel"]["lat"], "lon": state["confirmed_hotel"]["lon"]}
+            elif state.get("confirmed_attractions") and "lat" in state["confirmed_attractions"][0]:
+                loc = {"lat": state["confirmed_attractions"][0]["lat"], "lon": state["confirmed_attractions"][0]["lon"]}
+        elif state.get("confirmed_hotel") and "lat" in state["confirmed_hotel"]:
+            loc = {"lat": state["confirmed_hotel"]["lat"], "lon": state["confirmed_hotel"]["lon"]}
+        elif state.get("confirmed_attractions") and "lat" in state.get("confirmed_attractions", [{}])[0]:
+            loc = {"lat": state["confirmed_attractions"][0]["lat"], "lon": state["confirmed_attractions"][0]["lon"]}
+        if loc:
+            state["user_location"] = loc
+
     if not loc:
         state["turn_response"] = _ask_free_text(state, llm.build_reply(
             context={}, instruction="Ask the user to share their current location so we can find something nearby."
@@ -182,12 +204,13 @@ def _handle_change_hotel(state: TripState) -> TripState:
     )
     state["hotel_candidates"] = alternatives
     state["confirmed_hotel"] = None
+    state["conversation_stage"] = "collecting_hotel"  # T4: so next turn → confirm_hotel_node
     state["turn_response"] = {
         "reply": llm.build_reply(
             context={"hotels": alternatives, "budget_total": state.get("budget_total")},
             instruction="Present these alternative hotels and ask the user to pick one.",
         ),
-        "stage": state["conversation_stage"],
+        "stage": "collecting_hotel",
         "ui_component": "hotel_options",
         "options": alternatives,
         "requires_user_input": True,
@@ -221,8 +244,13 @@ def _handle_find_flight(state: TripState) -> TripState:
         ))
         return state
 
+    # T3b: reuse previously collected dates; only ask if neither source has them
     slots = llm.extract_trip_slots(state["last_user_message"])
-    outbound_date = slots.get("outbound_date")
+    outbound_date = (slots.get("outbound_date")
+                     or state.get("outbound_date"))       # persisted from destination flow
+    return_date   = (slots.get("return_date")
+                     or state.get("return_date"))
+
     if not outbound_date:
         state["conversation_stage"] = "collecting_flight_date"
         state["turn_response"] = _ask_free_text(state, llm.build_reply(
@@ -230,9 +258,13 @@ def _handle_find_flight(state: TripState) -> TripState:
         ))
         return state
 
+    # T2: if we're already in confirming_flight, handle the yes/no answer
+    if state.get("conversation_stage") == "confirming_flight":
+        return _handle_confirm_flight(state)
+
     flights = services.fetch_flight_options(
         state["departure_city"], state["destination_city"], outbound_date,
-        return_date=slots.get("return_date"), currency=state["currency"],
+        return_date=return_date, currency=state["currency"],
     )
 
     if flights is None:
@@ -243,8 +275,18 @@ def _handle_find_flight(state: TripState) -> TripState:
         ))
         return state
 
+    # T2: try to select from candidates if user already named a flight in this message
     top = flights[:config.MAX_FLIGHTS_SHOWN]
     state["flight_candidates"] = top
+
+    # Check if user already named one in this turn (e.g. "book the cheapest")
+    picked = llm.select_option(state["last_user_message"], top)
+    if picked:
+        state["confirmed_flight"] = dict(picked[0], mock_confirmed=False)
+        state["conversation_stage"] = "confirming_flight"
+        state["turn_response"] = _flight_confirmation_prompt(state)
+        return state
+
     state["turn_response"] = {
         "reply": llm.build_reply(
             context={"flights": top},
@@ -257,6 +299,76 @@ def _handle_find_flight(state: TripState) -> TripState:
         "options": top,
         "requires_user_input": True,
         "input_type": "select_one",
+    }
+    return state
+
+
+_CONFIRM_YES = {"yes", "yeah", "yep", "sure", "confirm", "book", "ok", "okay",
+                "sounds good", "go ahead", "do it", "confirmed", "proceed"}
+_CONFIRM_NO  = {"no", "nope", "nah", "cancel", "different", "change", "other",
+                "another", "back", "wait", "not this one"}
+
+
+def _flight_confirmation_prompt(state: TripState) -> dict:
+    """Build the turn_response that asks the user to confirm the selected flight."""
+    flight = state["confirmed_flight"]
+    return {
+        "reply": llm.build_reply(
+            context={"flight": flight},
+            instruction=(
+                "Summarise the selected flight: airline, departure/arrival time, price, stops. "
+                "Ask the user to confirm (yes/no). Do not claim any real booking or payment — "
+                "this is a demo booking flow only."
+            ),
+        ),
+        "stage": "confirming_flight",
+        "ui_component": "text",
+        "options": [],
+        "requires_user_input": True,
+        "input_type": "confirm",
+    }
+
+
+def _handle_confirm_flight(state: TripState) -> TripState:
+    """Process a yes/no answer when conversation_stage == confirming_flight."""
+    msg_lower = state["last_user_message"].strip().lower()
+    flight = state.get("confirmed_flight") or {}
+
+    if any(w in msg_lower for w in _CONFIRM_NO):
+        # User wants a different flight — go back to options
+        state["confirmed_flight"] = None
+        state["conversation_stage"] = "trip_active"
+        state["turn_response"] = {
+            "reply": llm.build_reply(
+                context={"flights": state["flight_candidates"]},
+                instruction="The user wants a different flight. Show the options again and ask them to choose.",
+            ),
+            "stage": "trip_active",
+            "ui_component": "flight_options",
+            "options": state["flight_candidates"],
+            "requires_user_input": True,
+            "input_type": "select_one",
+        }
+        return state
+
+    # Default: yes — mark mock confirmed
+    flight["mock_confirmed"] = True
+    state["confirmed_flight"] = flight
+    state["conversation_stage"] = "trip_active"
+    state["turn_response"] = {
+        "reply": llm.build_reply(
+            context={"flight": flight},
+            instruction=(
+                "Tell the user their flight is mock-confirmed (DEMO only — no real booking or payment "
+                "was made). Summarise the booking details briefly. Remind them they can still ask about "
+                "hotels, itinerary, or nearby exploration."
+            ),
+        ),
+        "stage": "trip_active",
+        "ui_component": "text",
+        "options": [],
+        "requires_user_input": False,
+        "input_type": "none",
     }
     return state
 

@@ -42,7 +42,11 @@ def search_attractions(query: str, lat: float | None = None, lon: float | None =
         params["ll"] = f"@{lat},{lon},{zoom}"
     results = GoogleSearch(params).get_dict()
     places = results.get("local_results") or results.get("place_results") or []
-    return [_normalize_place(p) for p in places]
+    if isinstance(places, dict):
+        places = [places]
+    elif not isinstance(places, list):
+        places = []
+    return [_normalize_place(p) for p in places if isinstance(p, dict)]
 
 
 def search_nearby(lat: float, lon: float, category: str, radius_minutes: int) -> list:
@@ -255,7 +259,9 @@ def search_events(city: str, limit: int = settings.cap_events) -> list:
 # --------------------------------------------------------------- normalizers --
 
 def _normalize_place(p: dict) -> dict:
-    coords = p.get("gps_coordinates", {})
+    if not isinstance(p, dict):
+        return {"name": str(p)}
+    coords = p.get("gps_coordinates", {}) if isinstance(p.get("gps_coordinates"), dict) else {}
     place_type = p.get("type")
     return {
         "place_id": p.get("data_id") or p.get("place_id"),
