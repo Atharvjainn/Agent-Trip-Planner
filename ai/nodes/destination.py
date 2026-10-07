@@ -15,9 +15,51 @@ Slot extraction, vibe classification, and matching a follow-up message
 against previously shown options all go through llm.py - nothing here
 pattern-matches the user's text itself.
 """
+import logging
+import re
 import llm
 import services
 from state import TripState
+
+logger = logging.getLogger(__name__)
+
+
+def _regex_extract_slots(text: str) -> dict:
+    """Lightweight regex fallback extractor when LLM provider is unavailable."""
+    slots = {}
+    if not text:
+        return slots
+
+    dur_match = re.search(r"\b(\d+)\s*[- ]?days?\b", text, re.IGNORECASE)
+    if dur_match:
+        try:
+            slots["duration_days"] = int(dur_match.group(1))
+        except ValueError:
+            pass
+
+    dep_match = re.search(
+        r"\bfrom\s+([A-Za-z\s]+?)(?=\s+(?:to|for|with|on|in|during|\d+|days?)|$)",
+        text,
+        re.IGNORECASE,
+    )
+    if dep_match:
+        dep = dep_match.group(1).strip()
+        stop_words = {"a", "an", "the", "some", "my", "our", "me", "it", "there", "here"}
+        if dep and dep.lower() not in stop_words and len(dep) >= 2:
+            slots["departure_city"] = dep.title()
+
+    dest_match = re.search(
+        r"\bto\s+([A-Za-z\s]+?)(?=\s+(?:for|from|with|on|in|during|\d+|days?)|$)",
+        text,
+        re.IGNORECASE,
+    )
+    if dest_match:
+        dest = dest_match.group(1).strip()
+        stop_words = {"a", "an", "the", "some", "my", "our", "me", "it", "there", "here"}
+        if dest and dest.lower() not in stop_words and len(dest) >= 2:
+            slots["destination_city"] = dest.title()
+
+    return slots
 
 
 def destination_node(state: TripState) -> TripState:
@@ -157,7 +199,14 @@ def destination_node(state: TripState) -> TripState:
 
 
 def _fill_known_slots(state: TripState) -> None:
-    slots = llm.extract_trip_slots(state["last_user_message"])
+    try:
+        slots = llm.extract_trip_slots(state["last_user_message"])
+    except Exception as exc:
+        logger.warning(
+            "LLM extract_trip_slots failed due to provider outage: %s. Using regex fallback slot extraction.",
+            exc,
+        )
+        slots = _regex_extract_slots(state.get("last_user_message", ""))
 
     # When we're specifically waiting for a departure city, re-interpret
     # any extracted city (bare replies like "Mumbai" are classified as
@@ -175,7 +224,6 @@ def _fill_known_slots(state: TripState) -> None:
             slots.pop("destination_city", None)  # prevent incorrect destination assignment
 
     from app.schemas.common import float_to_money_dict
-    import re
 
     if state.get("conversation_stage") == "collecting_budget" and not state.get("budget_total"):
         extracted_b = slots.get("budget_total")
@@ -204,6 +252,9 @@ def _fill_known_slots(state: TripState) -> None:
                 state[key] = slots[key]
 
     if not state.get("vibe"):
-        vibe = llm.classify_vibe(state["last_user_message"])
-        if vibe:
-            state["vibe"] = vibe
+        try:
+            vibe = llm.classify_vibe(state["last_user_message"])
+            if vibe:
+                state["vibe"] = vibe
+        except Exception as exc:
+            logger.warning("LLM classify_vibe failed during provider outage: %s", exc)

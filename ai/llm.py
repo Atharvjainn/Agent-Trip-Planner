@@ -579,13 +579,20 @@ def build_reply(context: dict, instruction: str, model: str = GENERATION_MODEL) 
     """The conversational text shown to the user, for every node.
     Explicitly told to use only the facts given in context - the actual
     data always comes from SerpApi/the knowledge graph, never invented."""
-    response = generate(
-        [{"role": "system", "content": "You are a concise, friendly trip-planning assistant. "
-                                        "Use only the facts given in context - never invent a place, "
-                                        "price, rating, or detail that isn't there. Two or three "
-                                        "sentences, no more."},
-         {"role": "user", "content": f"Context: {json.dumps(context, default=str)}\n\nInstruction: {instruction}"}],
-        model=model,
-        max_tokens=200,
-    )
-    return response.content
+    try:
+        response = generate(
+            [{"role": "system", "content": "You are a concise, friendly trip-planning assistant. "
+                                            "Use only the facts given in context - never invent a place, "
+                                            "price, rating, or detail that isn't there. Two or three "
+                                            "sentences, no more."},
+             {"role": "user", "content": f"Context: {json.dumps(context, default=str)}\n\nInstruction: {instruction}"}],
+            model=model,
+            max_tokens=200,
+        )
+        return response.content
+    except Exception as exc:
+        logger.warning("build_reply LLM call failed: %s. Using fallback reply.", exc)
+        dest = context.get("destination_city")
+        if dest:
+            return f"Got it! Planning your trip to {dest}. Let's work out the budget next."
+        return "I am processing your trip request. Let's continue planning!"
