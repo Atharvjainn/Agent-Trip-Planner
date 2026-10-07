@@ -115,6 +115,40 @@ def search_flight_autocomplete(query: str) -> list:
     return results.get("suggestions", [])
 
 
+def _get_best_autocomplete_match(suggestions: list, query_text: str) -> dict | None:
+    if not suggestions:
+        return None
+    q_lower = query_text.strip().lower()
+    for item in suggestions:
+        name_lower = (item.get("name") or "").lower()
+        if item.get("type") == "city" and (q_lower in name_lower or name_lower in q_lower):
+            return item
+    for item in suggestions:
+        if item.get("type") == "city":
+            return item
+    return suggestions[0]
+
+
+def resolve_valid_airport_codes(location_text: str) -> set:
+    if len(location_text) == 3 and location_text.isupper():
+        return {location_text}
+    suggestions = search_flight_autocomplete(location_text)
+    if not suggestions:
+        return set()
+    best = _get_best_autocomplete_match(suggestions, location_text)
+    codes = set()
+    if best:
+        for apt in best.get("airports", []) or []:
+            if apt.get("id"):
+                codes.add(apt["id"])
+            if apt.get("code"):
+                codes.add(apt["code"])
+        best_id = best.get("id", "")
+        if len(best_id) == 3 and best_id.isupper():
+            codes.add(best_id)
+    return codes
+
+
 def resolve_departure_id(city_text: str) -> str | None:
     """Prefers the city-level location id (covers every airport serving
     that city) over one specific airport. Returns None - not a guess -
@@ -124,7 +158,9 @@ def resolve_departure_id(city_text: str) -> str | None:
     suggestions = search_flight_autocomplete(city_text)
     if not suggestions:
         return None
-    top = suggestions[0]
+    top = _get_best_autocomplete_match(suggestions, city_text)
+    if not top:
+        return None
     if top.get("id"):
         return top["id"]
     airports = top.get("airports") or []

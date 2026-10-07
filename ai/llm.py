@@ -94,6 +94,27 @@ def _decide_fallback(state: str, questions: dict) -> dict:
         if content.endswith("```"):
             content = content[:-3]
         parsed = json.loads(content.strip())
+        if isinstance(parsed, dict):
+            values = {}
+            for qid, spec in questions.items():
+                if qid in parsed:
+                    values[qid] = parsed[qid]
+                else:
+                    found = False
+                    for alt in (qid.lower(), "choice", "selection", "answer", "option", "picked"):
+                        if alt in parsed:
+                            values[qid] = parsed[alt]
+                            found = True
+                            break
+                    if not found:
+                        q_type = spec["type"]
+                        if q_type == "choice":
+                            values[qid] = "none"
+                        elif q_type == "noul":
+                            values[qid] = False
+                        else:
+                            values[qid] = 0
+            return {"values": values, "confidences": {k: 1.0 for k in values}}
         return {"values": parsed, "confidences": {k: 1.0 for k in parsed}}
     except Exception as exc:
         logger.warning("Fallback execution failed: %s", type(exc).__name__)
@@ -359,8 +380,25 @@ def select_option(last_message: str, candidates: list, multi: bool = False) -> l
                       "criteria": criteria}},
             model=model,
         )
-        picked = result["values"]["pick"]
-        return [candidates[int(picked)]] if picked != "none" else []
+        logger.info("select_option raw decision result: %s", result)
+        values = result.get("values", {}) if isinstance(result, dict) else {}
+        picked = values.get("pick")
+        if picked is None:
+            for alt in ("choice", "selection", "answer", "option", "picked"):
+                if alt in values:
+                    picked = values[alt]
+                    break
+
+        if picked is not None:
+            picked_str = str(picked).strip()
+            if picked_str != "none" and picked_str in labels:
+                try:
+                    idx = int(picked_str)
+                    if 0 <= idx < len(candidates):
+                        return [candidates[idx]]
+                except (ValueError, TypeError):
+                    pass
+        return []
 
     questions = {
         f"pick_{i}": {"type": "noul",
@@ -368,7 +406,8 @@ def select_option(last_message: str, candidates: list, multi: bool = False) -> l
         for i in range(len(candidates))
     }
     result = decide(state, questions, model=model)
-    return [c for i, c in enumerate(candidates) if result["values"][f"pick_{i}"]]
+    values = result.get("values", {}) if isinstance(result, dict) else {}
+    return [c for i, c in enumerate(candidates) if values.get(f"pick_{i}", False)]
 
 
 # ------------------------------------------------- open-ended extraction --

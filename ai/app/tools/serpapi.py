@@ -433,8 +433,8 @@ async def _bg_ingest(coro: Any) -> None:
     """Fire-and-forget wrapper. Ingestion errors are logged, never propagated."""
     try:
         await coro
-    except Exception:  # noqa: BLE001
-        logger.warning("serpapi: background KG ingestion failed", exc_info=True)
+    except BaseException:  # noqa: BLE001
+        pass
 
 
 # ---------------------------------------------------------------------------

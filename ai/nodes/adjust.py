@@ -142,6 +142,10 @@ def _handle_reschedule_day(state: TripState) -> TripState:
 
 
 def _handle_extend_trip(state: TripState) -> TripState:
+    slots = llm.extract_trip_slots(state["last_user_message"])
+    ext_days = slots.get("duration_days")
+    if ext_days and isinstance(ext_days, (int, float)):
+        state["duration_days"] = (state.get("duration_days") or 0) + int(ext_days)
     already_seen = {a["place_id"] for a in state["confirmed_attractions"]} | {
         c["place_id"] for c in state["attraction_candidates"]
     }
