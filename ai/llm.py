@@ -122,13 +122,17 @@ def _decide_fallback(state: str, questions: dict) -> dict:
         values, confidences = {}, {}
         for qid, spec in questions.items():
             q_type = spec["type"]
+            fb = spec.get("fallback_default")
             if q_type == "choice":
-                keys = list(spec["criteria"].keys())
-                values[qid] = keys[0] if keys else "none"
+                if fb is not None:
+                    values[qid] = fb
+                else:
+                    keys = list(spec["criteria"].keys())
+                    values[qid] = keys[0] if keys else "none"
             elif q_type == "noul":
-                values[qid] = False
+                values[qid] = fb if fb is not None else False
             else:  # score
-                values[qid] = 0
+                values[qid] = fb if fb is not None else 0
             confidences[qid] = 0.0
         return {"values": values, "confidences": confidences}
 
@@ -296,10 +300,27 @@ def classify_intent(state: dict) -> str:
     the whole state (not just the message) so the classifier sees the
     same trip history classify_adjustment_type does."""
     ctx = _summarize_trip_context(state)
+    stage = state.get("conversation_stage", "start")
+
+    fallback_intent = "continue_flow"
+    if stage == "start":
+        msg_lower = (state.get("last_user_message") or "").lower()
+        keywords = ("trip", "plan", "visit", "travel", "vacation", "holiday", "book", "flight", "hotel", "days", "day", "destination", "itinerary", "stay", "resort", "explore")
+        if any(kw in msg_lower for kw in keywords):
+            fallback_intent = "new_trip"
+        else:
+            fallback_intent = "greeting"
+
     result = decide(
         ctx,
-        {"intent": {"type": "choice", "instructions": "What is the user trying to do?",
-                    "criteria": INTENT_CRITERIA}},
+        {
+            "intent": {
+                "type": "choice",
+                "instructions": "What is the user trying to do?",
+                "criteria": INTENT_CRITERIA,
+                "fallback_default": fallback_intent,
+            }
+        },
         model=FAST_MODEL,
     )
     return result["values"]["intent"]
@@ -328,8 +349,14 @@ def classify_adjustment_type(state: dict) -> str:
     ctx = _summarize_trip_context(state)
     result = decide(
         ctx,
-        {"adjustment": {"type": "choice", "instructions": "What kind of change to the trip does the user need?",
-                        "criteria": ADJUSTMENT_CRITERIA}},
+        {
+            "adjustment": {
+                "type": "choice",
+                "instructions": "What kind of change to the trip does the user need?",
+                "criteria": ADJUSTMENT_CRITERIA,
+                "fallback_default": "replace_itinerary_items",
+            }
+        },
         model=REASONING_MODEL,
     )
     return result["values"]["adjustment"]
@@ -352,9 +379,14 @@ def classify_nearby_category(message: str, weather: dict) -> str:
     state = f"Weather right now: {weather['description']}, {weather['temp_c']}C\nUser message: {message}"
     result = decide(
         state,
-        {"category": {"type": "choice",
-                      "instructions": "What kind of nearby experience is the user asking for, given the weather?",
-                      "criteria": NEARBY_CATEGORY_CRITERIA}},
+        {
+            "category": {
+                "type": "choice",
+                "instructions": "What kind of nearby experience is the user asking for, given the weather?",
+                "criteria": NEARBY_CATEGORY_CRITERIA,
+                "fallback_default": "food",
+            }
+        },
         model=FAST_MODEL,
     )
     return result["values"]["category"]
@@ -376,8 +408,14 @@ def select_option(last_message: str, candidates: list, multi: bool = False) -> l
         criteria = {**labels, "none": "none of the above / unclear from the message"}
         result = decide(
             state,
-            {"pick": {"type": "choice", "instructions": "Which option is the user selecting?",
-                      "criteria": criteria}},
+            {
+                "pick": {
+                    "type": "choice",
+                    "instructions": "Which option is the user selecting?",
+                    "criteria": criteria,
+                    "fallback_default": "none",
+                }
+            },
             model=model,
         )
         logger.info("select_option raw decision result: %s", result)
@@ -435,8 +473,14 @@ VIBE_CRITERIA = {
 def classify_vibe(message: str) -> str | None:
     result = decide(
         message,
-        {"vibe": {"type": "choice", "instructions": "What kind of trip is this, if mentioned?",
-                  "criteria": {**VIBE_CRITERIA, "unspecified": "not mentioned in the message"}}},
+        {
+            "vibe": {
+                "type": "choice",
+                "instructions": "What kind of trip is this, if mentioned?",
+                "criteria": {**VIBE_CRITERIA, "unspecified": "not mentioned in the message"},
+                "fallback_default": "unspecified",
+            }
+        },
         model=FAST_MODEL,
     )
     vibe = result["values"]["vibe"]
@@ -464,9 +508,14 @@ def classify_explore_interest(message: str, vibe: str | None) -> str:
     state = f"Trip vibe (our own classification): {vibe or 'unspecified'}\nUser message: {message}"
     result = decide(
         state,
-        {"interest": {"type": "choice",
-                      "instructions": "Which travel interest category best fits this trip?",
-                      "criteria": EXPLORE_INTEREST_CRITERIA}},
+        {
+            "interest": {
+                "type": "choice",
+                "instructions": "Which travel interest category best fits this trip?",
+                "criteria": EXPLORE_INTEREST_CRITERIA,
+                "fallback_default": "0",
+            }
+        },
         model=FAST_MODEL,
     )
     return result["values"]["interest"]
