@@ -29,13 +29,13 @@ def destination_node(state: TripState) -> TripState:
             state["destination_city"] = picked[0]["name"]
 
     if state.get("destination_city"):
-        state["conversation_stage"] = "collecting_attractions"
+        state["conversation_stage"] = "estimating_budget"
         state["turn_response"] = {
             "reply": llm.build_reply(
                 context={"destination_city": state["destination_city"]},
-                instruction="Confirm the destination and say we're about to find places to visit there.",
+                instruction="Confirm the destination and say we're about to estimate the budget.",
             ),
-            "stage": "collecting_attractions",
+            "stage": "estimating_budget",
             "ui_component": "text",
             "options": [],
             "requires_user_input": False,
@@ -174,10 +174,34 @@ def _fill_known_slots(state: TripState) -> None:
             slots["departure_city"] = city
             slots.pop("destination_city", None)  # prevent incorrect destination assignment
 
+    from app.schemas.common import float_to_money_dict
+    import re
+
+    if state.get("conversation_stage") == "collecting_budget" and not state.get("budget_total"):
+        extracted_b = slots.get("budget_total")
+        if not extracted_b:
+            raw_msg = state.get("last_user_message", "").strip()
+            m_num = re.search(r"\b(\d[\d,]*)\b", raw_msg)
+            if m_num:
+                try:
+                    extracted_b = float(m_num.group(1).replace(",", ""))
+                except ValueError:
+                    extracted_b = None
+        if extracted_b:
+            curr = state.get("currency", "INR") or "INR"
+            m_dict = float_to_money_dict(extracted_b, curr)
+            if m_dict:
+                state["budget_total"] = m_dict["amountMinor"]
+
     for key in ("destination_city", "departure_city", "budget_total", "duration_days",
                 "outbound_date", "return_date"):
         if slots.get(key) is not None and not state.get(key):
-            state[key] = slots[key]
+            if key == "budget_total":
+                m_dict = float_to_money_dict(slots[key], state.get("currency", "INR") or "INR")
+                if m_dict:
+                    state["budget_total"] = m_dict["amountMinor"]
+            else:
+                state[key] = slots[key]
 
     if not state.get("vibe"):
         vibe = llm.classify_vibe(state["last_user_message"])

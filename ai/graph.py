@@ -27,6 +27,7 @@ import llm
 from state import TripState
 from nodes.router import classify_intent
 from nodes.destination import destination_node
+from nodes.budget import budget_node
 from nodes.attractions import attractions_node, confirm_attractions_node
 from nodes.hotels import hotels_node, confirm_hotel_node
 from nodes.itinerary import itinerary_node
@@ -60,6 +61,8 @@ def route_from_start(state: TripState) -> str:
         "start": "greeting",
         "collecting_departure": "destination",
         "collecting_destination": "destination",
+        "collecting_budget": "destination",
+        "estimating_budget": "budget",
         "collecting_attractions": "confirm_attractions",
         "collecting_hotel": "confirm_hotel",
         "confirming_hotel": "confirm_hotel",   # re-enter node to process yes/no
@@ -72,6 +75,9 @@ def route_from_start(state: TripState) -> str:
 
 
 def after_destination(state: TripState) -> str:
+    return "budget" if state["conversation_stage"] == "estimating_budget" else END
+
+def after_budget(state: TripState) -> str:
     return "attractions" if state["conversation_stage"] == "collecting_attractions" else END
 
 
@@ -88,6 +94,7 @@ def build_graph():
 
     graph.add_node("greeting", greeting_node)
     graph.add_node("destination", destination_node)
+    graph.add_node("budget", budget_node)
     graph.add_node("attractions", attractions_node)
     graph.add_node("confirm_attractions", confirm_attractions_node)
     graph.add_node("hotels", hotels_node)
@@ -107,7 +114,8 @@ def build_graph():
         },
     )
 
-    graph.add_conditional_edges("destination", after_destination, {"attractions": "attractions", END: END})
+    graph.add_conditional_edges("destination", after_destination, {"budget": "budget", END: END})
+    graph.add_conditional_edges("budget", after_budget, {"attractions": "attractions", END: END})
     graph.add_conditional_edges(
         "confirm_attractions", after_confirm_attractions, {"hotels": "hotels", END: END}
     )
