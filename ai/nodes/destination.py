@@ -24,11 +24,43 @@ from state import TripState
 logger = logging.getLogger(__name__)
 
 
+def _parse_budget_number(text: str) -> float | None:
+    """Parse numeric budget, supporting Indian terms (lakh, crore, k) and standard numbers."""
+    if not text:
+        return None
+    m_term = re.search(
+        r"\b(\d+(?:\.\d+)?)\s*(lakhs?|lacs?|crores?|cr|k)\b",
+        text,
+        re.IGNORECASE,
+    )
+    if m_term:
+        val = float(m_term.group(1))
+        unit = m_term.group(2).lower()
+        if unit in ("lakh", "lakhs", "lac", "lacs"):
+            return val * 100000.0
+        elif unit in ("crore", "crores", "cr"):
+            return val * 10000000.0
+        elif unit == "k":
+            return val * 1000.0
+
+    m_num = re.search(r"\b(\d[\d,]*)\b", text)
+    if m_num:
+        try:
+            return float(m_num.group(1).replace(",", ""))
+        except ValueError:
+            pass
+    return None
+
+
 def _regex_extract_slots(text: str) -> dict:
     """Lightweight regex fallback extractor when LLM provider is unavailable."""
     slots = {}
     if not text:
         return slots
+
+    budget_val = _parse_budget_number(text)
+    if budget_val is not None:
+        slots["budget_total"] = budget_val
 
     dur_match = re.search(r"\b(\d+)\s*[- ]?days?\b", text, re.IGNORECASE)
     if dur_match:
@@ -226,15 +258,7 @@ def _fill_known_slots(state: TripState) -> None:
     from app.schemas.common import float_to_money_dict
 
     if state.get("conversation_stage") == "collecting_budget" and not state.get("budget_total"):
-        extracted_b = slots.get("budget_total")
-        if not extracted_b:
-            raw_msg = state.get("last_user_message", "").strip()
-            m_num = re.search(r"\b(\d[\d,]*)\b", raw_msg)
-            if m_num:
-                try:
-                    extracted_b = float(m_num.group(1).replace(",", ""))
-                except ValueError:
-                    extracted_b = None
+        extracted_b = slots.get("budget_total") or _parse_budget_number(state.get("last_user_message", ""))
         if extracted_b:
             curr = state.get("currency", "INR") or "INR"
             m_dict = float_to_money_dict(extracted_b, curr)

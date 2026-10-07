@@ -532,7 +532,10 @@ _TRIP_SLOTS_TOOL = {
                 "destination_city": {"type": "string"},
                 "departure_city": {"type": "string",
                                     "description": "where the user is starting the trip from, if mentioned"},
-                "budget_total": {"type": "number"},
+                "budget_total": {
+                    "type": "number",
+                    "description": "total budget amount as a plain number. Convert Indian numbering terms like 'lakh' / 'lakhs' (multiply by 100,000) and 'crore' / 'crores' (multiply by 10,000,000) into a plain numeric value (e.g. '1 lakh' -> 100000, '2.5 lakh' -> 250000, '1 crore' -> 10000000)."
+                },
                 "duration_days": {"type": "integer"},
                 "free_minutes": {"type": "integer",
                                   "description": "minutes of free time mentioned for a nearby-exploration question"},
@@ -563,8 +566,9 @@ def extract_trip_slots(message: str) -> dict:
     today = date.today().isoformat()
     response = generate(
         [{"role": "system", "content": f"Today's date is {today}. Extract trip planning details "
-                                        "from the user's message, resolving any relative dates "
-                                        "against today's date. Call extracted_slots with only the "
+                                        "from the user's message, resolving any relative dates against today's date. "
+                                        "Convert Indian numbering terms ('lakh' = 100,000, 'crore' = 10,000,000) "
+                                        "into plain numeric values for budget_total. Call extracted_slots with only the "
                                         "fields actually mentioned."},
          {"role": "user", "content": message}],
         tools=[_TRIP_SLOTS_TOOL],
