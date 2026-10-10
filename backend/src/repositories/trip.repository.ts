@@ -107,6 +107,25 @@ export class TripRepository {
     });
   }
 
+  async updateSavingSuggestions(id: string, savingSuggestions: any) {
+    return prisma.trip.update({
+      where: { id },
+      data: {
+        savingSuggestions,
+      } as any,
+    });
+  }
+
+  async updateSummary(id: string, summary: any, status: TripStatus = TripStatus.SUMMARY_READY) {
+    return prisma.trip.update({
+      where: { id },
+      data: {
+        summary,
+        status,
+      } as any,
+    });
+  }
+
   async updateStatus(id: string, status: TripStatus) {
     return prisma.trip.update({
       where: { id },

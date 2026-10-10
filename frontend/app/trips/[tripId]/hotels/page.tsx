@@ -97,14 +97,17 @@ export default function HotelsPage({
     const hotelId = hotel.providerRef.id || hotel.name;
     setSelectingHotelId(hotelId);
     try {
-      await selectHotel(tripId, hotel);
+      const res = await selectHotel(tripId, hotel);
       setSelectedHotel({
         providerId: hotelId,
         providerName: hotel.name,
       });
       setTrackerRefreshKey((prev) => prev + 1);
       // Advance to Summary / Savings step
-      router.push(`/trips/${tripId}/summary`);
+      const nextUrl = res.buildSummaryJobId
+        ? `/trips/${tripId}/summary?jobId=${res.buildSummaryJobId}`
+        : `/trips/${tripId}/summary`;
+      router.push(nextUrl);
     } catch (err: any) {
       alert(err.message || 'Failed to save hotel selection');
     } finally {
@@ -132,7 +135,7 @@ export default function HotelsPage({
   }
 
   // Active Job state
-  if (hotelOptions.length === 0 && (jobStatus === 'active' || jobStatus === 'queued')) {
+  if (hotelOptions.length === 0 && (jobStatus === 'active' || jobStatus === 'queued' || Boolean(activeJobId))) {
     return (
       <div className="py-4">
         <BudgetTracker tripId={tripId} refreshKey={trackerRefreshKey} className="mb-6 sticky top-4 z-20" />

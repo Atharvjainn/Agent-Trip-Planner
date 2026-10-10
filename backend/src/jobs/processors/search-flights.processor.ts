@@ -1,6 +1,7 @@
 import { Job } from 'bullmq';
 import { TripJobPayload } from '../queue';
 import { tripRepository } from '../../repositories/trip.repository';
+import { jobRepository } from '../../repositories/job.repository';
 import { aiClient } from '../../clients/ai.client';
 import { fxService } from '../../services/fx.service';
 import { budgetService } from '../../services/budget.service';
@@ -9,7 +10,9 @@ import { Money } from '../../schemas/common.schema';
 
 export async function processSearchFlights(job: Job<TripJobPayload>) {
   const { tripId, userId } = job.data;
-  logger.info(`Starting search-flights job for trip ${tripId}`);
+  const jobId = job.id!;
+  logger.info(`Starting search-flights job ${jobId} for trip ${tripId}`);
+  await jobRepository.updateStatus(jobId, 'active');
 
   const trip = await tripRepository.findByIdAndUser(tripId, userId);
   if (!trip) {
@@ -95,6 +98,7 @@ export async function processSearchFlights(job: Job<TripJobPayload>) {
   );
 
   await tripRepository.updateFlightOptions(trip.id, enrichedOptions);
+  await jobRepository.updateStatus(jobId, 'completed');
   logger.info(`search-flights completed with ${enrichedOptions.length} options for trip ${trip.id}`);
 
   return {

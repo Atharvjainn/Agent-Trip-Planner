@@ -286,4 +286,58 @@ export const tripResponseSchema = z.object({
 
 export type TripResponse = z.infer<typeof tripResponseSchema>;
 
+// Summary Schemas
+export const commuteEstimateSchema = z.object({
+  dailyDistanceKm: z.number(),
+  dailyCost: MoneySchema,
+  tripTotalCost: MoneySchema,
+  mode: z.string(),
+});
+
+export type CommuteEstimate = z.infer<typeof commuteEstimateSchema>;
+
+export const savingSuggestionSchema = z.object({
+  strategyId: z.string(),
+  title: z.string(),
+  description: z.string(),
+  estimatedSavings: MoneySchema,
+});
+
+export type SavingSuggestion = z.infer<typeof savingSuggestionSchema>;
+
+export const summaryDataSchema = z.object({
+  narrative: z.string(),
+  commute: commuteEstimateSchema,
+  fallbackUsed: z.boolean().default(false),
+  spotsCount: z.number().optional(),
+  nights: z.number().optional(),
+  generatedAt: z.string().optional(),
+});
+
+export type SummaryData = z.infer<typeof summaryDataSchema>;
+
+export interface FullSummaryResponse {
+  trip: TripResponse;
+  nights: number;
+  selections: {
+    flight: Selection | null;
+    hotel: Selection | null;
+    spots: Selection[];
+  };
+  costs: {
+    flightSpentMinor: number;
+    hotelSpentMinor: number;
+    commuteSpentMinor: number;
+    totalEstimatedMinor: number;
+    remainingMinor: number;
+    currency: string;
+  };
+  summary: SummaryData | null;
+  savingSuggestions: SavingSuggestion[];
+  pendingJob?: {
+    id: string;
+    status: string;
+  } | null;
+}
+
 

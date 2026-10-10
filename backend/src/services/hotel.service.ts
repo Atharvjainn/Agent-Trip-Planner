@@ -162,10 +162,33 @@ export class HotelService {
       await tripRepository.updateStatus(tripId, TripStatus.HOTEL_SELECTED);
     }
 
+    // Trigger suggest-savings job
+    const savingsJob = await tripQueue.add('suggest-savings', { tripId, userId });
+    if (savingsJob.id) {
+      await jobRepository.create({
+        id: savingsJob.id,
+        tripId: trip.id,
+        userId,
+        name: 'suggest-savings',
+      });
+    }
+
+    // Trigger build-summary job for final itinerary
+    const summaryJob = await tripQueue.add('build-summary', { tripId, userId });
+    if (summaryJob.id) {
+      await jobRepository.create({
+        id: summaryJob.id,
+        tripId: trip.id,
+        userId,
+        name: 'build-summary',
+      });
+    }
+
     return {
       success: true,
       selection,
-      nextStep: `/trips/${tripId}/summary`,
+      buildSummaryJobId: summaryJob.id,
+      nextStep: `/trips/${tripId}/summary?jobId=${summaryJob.id}`,
     };
   }
 

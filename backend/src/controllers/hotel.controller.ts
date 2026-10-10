@@ -7,7 +7,7 @@ export class HotelController {
   async triggerSearch(req: Request, res: Response, next: NextFunction) {
     try {
       const user = (req as any).user;
-      const tripId = req.params.id || req.params.tripId;
+      const tripId = (req.params.id || req.params.tripId) as string;
       const result = await hotelService.triggerHotelSearch(tripId, user.id);
       res.status(202).json(result);
     } catch (err) {
@@ -18,7 +18,7 @@ export class HotelController {
   async getHotelOptions(req: Request, res: Response, next: NextFunction) {
     try {
       const user = (req as any).user;
-      const tripId = req.params.id || req.params.tripId;
+      const tripId = (req.params.id || req.params.tripId) as string;
       const result = await hotelService.getHotelOptions(tripId, user.id);
       res.json(result);
     } catch (err) {
@@ -29,11 +29,11 @@ export class HotelController {
   async selectHotel(req: Request, res: Response, next: NextFunction) {
     try {
       const user = (req as any).user;
-      const tripId = req.params.id || req.params.tripId;
+      const tripId = (req.params.id || req.params.tripId) as string;
 
       const parsed = SelectHotelRequestSchema.safeParse(req.body);
       if (!parsed.success) {
-        throw new BadRequestError('Invalid hotel selection payload', parsed.error.issues);
+        throw new BadRequestError('Invalid hotel selection payload');
       }
 
       const result = await hotelService.selectHotel(tripId, user.id, parsed.data.hotel);
@@ -46,11 +46,11 @@ export class HotelController {
   async updateStayBudget(req: Request, res: Response, next: NextFunction) {
     try {
       const user = (req as any).user;
-      const tripId = req.params.id || req.params.tripId;
+      const tripId = (req.params.id || req.params.tripId) as string;
 
       const parsed = PatchStayBudgetSchema.safeParse(req.body);
       if (!parsed.success) {
-        throw new BadRequestError('Invalid stay budget payload', parsed.error.issues);
+        throw new BadRequestError('Invalid stay budget payload');
       }
 
       const result = await hotelService.updateStayBudget(

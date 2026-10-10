@@ -27,6 +27,11 @@ export const GeoPointSchema = z.object({
   lng: z.number(),
 });
 
+export type GeoPoint = z.infer<typeof GeoPointSchema>;
+
+export const moneySchema = MoneySchema;
+export const geoPointSchema = GeoPointSchema;
+
 export const ProviderRefSchema = z.object({
   provider: z.string().default('serpapi'),
   id: z.string(),

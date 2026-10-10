@@ -59,7 +59,7 @@ export class FXService {
       clearTimeout(timeoutId);
 
       if (res.ok) {
-        const data = await res.json();
+        const data = (await res.json()) as any;
         if (data && data.rates && typeof data.rates === 'object') {
           rates = data.rates;
           timestamp = new Date(data.time_last_update_utc || Date.now());

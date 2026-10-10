@@ -9,6 +9,7 @@ import spotRouter from './spot.routes';
 import budgetRouter from './budget.routes';
 import flightRouter from './flight.routes';
 import hotelRouter from './hotel.routes';
+import summaryRouter from './summary.routes';
 
 const router = Router();
 
@@ -34,6 +35,7 @@ router.use('/:id/flights', flightRouter);
 router.use('/:id/flight', flightRouter);
 router.use('/:id/hotels', hotelRouter);
 router.use('/:id/hotel', hotelRouter);
+router.use('/:id/summary', summaryRouter);
 
 export default router;
 

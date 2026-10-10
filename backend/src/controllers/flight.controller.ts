@@ -7,7 +7,7 @@ export class FlightController {
   async triggerSearch(req: Request, res: Response, next: NextFunction) {
     try {
       const user = (req as any).user;
-      const tripId = req.params.id || req.params.tripId;
+      const tripId = (req.params.id || req.params.tripId) as string;
       const result = await flightService.triggerFlightSearch(tripId, user.id);
       res.status(202).json(result);
     } catch (err) {
@@ -18,7 +18,7 @@ export class FlightController {
   async getFlightOptions(req: Request, res: Response, next: NextFunction) {
     try {
       const user = (req as any).user;
-      const tripId = req.params.id || req.params.tripId;
+      const tripId = (req.params.id || req.params.tripId) as string;
       const result = await flightService.getFlightOptions(tripId, user.id);
       res.json(result);
     } catch (err) {
@@ -29,11 +29,11 @@ export class FlightController {
   async selectFlight(req: Request, res: Response, next: NextFunction) {
     try {
       const user = (req as any).user;
-      const tripId = req.params.id || req.params.tripId;
+      const tripId = (req.params.id || req.params.tripId) as string;
 
       const parsed = SelectFlightRequestSchema.safeParse(req.body);
       if (!parsed.success) {
-        throw new BadRequestError('Invalid flight selection payload', parsed.error.issues);
+        throw new BadRequestError('Invalid flight selection payload');
       }
 
       const result = await flightService.selectFlight(tripId, user.id, parsed.data.flight);

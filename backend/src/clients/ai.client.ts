@@ -29,6 +29,18 @@ import {
   AIHotelSearchResponseSchema,
 } from '../schemas/hotel.schema';
 
+import {
+  SavingsSuggestRequest,
+  SavingsSuggestResponse,
+  savingsSuggestResponseSchema,
+} from '../schemas/savings.schema';
+
+import {
+  SummaryBuildRequest,
+  SummaryBuildResponse,
+  summaryBuildResponseSchema,
+} from '../schemas/summary.schema';
+
 class AIClient {
   private baseUrl: string;
   private internalKey: string;
@@ -125,6 +137,30 @@ class AIClient {
         errors: parsed.error.issues,
       });
       throw new BadGatewayError('Invalid response schema from hotel search service');
+    }
+    return parsed.data;
+  }
+
+  async suggestSavings(req: SavingsSuggestRequest): Promise<SavingsSuggestResponse> {
+    const data = await this.post('/internal/savings/suggest', req);
+    const parsed = savingsSuggestResponseSchema.safeParse(data);
+    if (!parsed.success) {
+      logger.error('Invalid schema from /internal/savings/suggest:', {
+        errors: parsed.error.issues,
+      });
+      throw new BadGatewayError('Invalid response schema from savings suggestion service');
+    }
+    return parsed.data;
+  }
+
+  async buildSummary(req: SummaryBuildRequest): Promise<SummaryBuildResponse> {
+    const data = await this.post('/internal/summary/build', req);
+    const parsed = summaryBuildResponseSchema.safeParse(data);
+    if (!parsed.success) {
+      logger.error('Invalid schema from /internal/summary/build:', {
+        errors: parsed.error.issues,
+      });
+      throw new BadGatewayError('Invalid response schema from summary build service');
     }
     return parsed.data;
   }

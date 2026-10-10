@@ -6,6 +6,8 @@ import { processDiscoverSpots } from './jobs/processors/discover-spots.processor
 import { processEstimateBudget } from './jobs/processors/estimate-budget.processor';
 import { processSearchFlights } from './jobs/processors/search-flights.processor';
 import { processSearchHotels } from './jobs/processors/search-hotels.processor';
+import { processSuggestSavings } from './jobs/processors/suggest-savings.processor';
+import { processBuildSummary } from './jobs/processors/build-summary.processor';
 import { jobRepository } from './repositories/job.repository';
 import { logger } from './lib/logger';
 
@@ -23,6 +25,10 @@ export const worker = new Worker<TripJobPayload>(
         return await processSearchFlights(job);
       case 'search-hotels':
         return await processSearchHotels(job);
+      case 'suggest-savings':
+        return await processSuggestSavings(job);
+      case 'build-summary':
+        return await processBuildSummary(job);
       default:
         logger.warn(`Unknown job name: ${job.name}`);
         throw new Error(`Unknown job name: ${job.name}`);

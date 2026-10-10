@@ -15,7 +15,7 @@ export const SelectionSchema = z.object({
   fxRate: z.number(),
   fxAt: z.string().or(z.date()),
   deepLink: z.string().nullable().optional(),
-  metadata: z.record(z.unknown()).nullable().optional(),
+  metadata: z.record(z.string(), z.unknown()).nullable().optional(),
   createdAt: z.string().or(z.date()),
   updatedAt: z.string().or(z.date()),
 });

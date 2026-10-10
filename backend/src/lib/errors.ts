@@ -41,6 +41,12 @@ export class ValidationError extends AppError {
   }
 }
 
+export class BadRequestError extends AppError {
+  constructor(message = 'Bad Request') {
+    super(message, 400);
+  }
+}
+
 export class BadGatewayError extends AppError {
   constructor(message = 'Upstream service error') {
     super(message, 502);

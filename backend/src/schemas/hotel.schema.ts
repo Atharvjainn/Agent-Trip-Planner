@@ -7,6 +7,8 @@ export const SelectedSpotInputSchema = z.object({
   location: GeoPointSchema,
 });
 
+export const selectedSpotInputSchema = SelectedSpotInputSchema;
+
 export const SpotDistanceSchema = z.object({
   spotId: z.string(),
   spotName: z.string(),

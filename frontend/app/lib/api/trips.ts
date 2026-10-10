@@ -137,7 +137,7 @@ export async function getHotelOptions(tripId: string) {
 }
 
 export async function selectHotel(tripId: string, hotel: any) {
-  return apiFetch<{ success: boolean; selection: any; nextStep: string }>(
+  return apiFetch<{ success: boolean; selection: any; buildSummaryJobId?: string; nextStep: string }>(
     `/trips/${tripId}/hotel`,
     {
       method: 'POST',
@@ -155,5 +155,16 @@ export async function updateStayBudget(tripId: string, stayBudgetMinor: number) 
     }
   );
 }
+
+export async function getTripSummary(tripId: string) {
+  return apiFetch<any>(`/trips/${tripId}/summary`);
+}
+
+export async function buildTripSummary(tripId: string): Promise<{ jobId: string; status: string }> {
+  return apiFetch<{ jobId: string; status: string }>(`/trips/${tripId}/summary/build`, {
+    method: 'POST',
+  });
+}
+
 
 

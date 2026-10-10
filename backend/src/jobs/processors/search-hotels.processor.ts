@@ -2,6 +2,7 @@ import { Job } from 'bullmq';
 import { TripJobPayload } from '../queue';
 import { tripRepository } from '../../repositories/trip.repository';
 import { selectionRepository } from '../../repositories/selection.repository';
+import { jobRepository } from '../../repositories/job.repository';
 import { aiClient } from '../../clients/ai.client';
 import { fxService } from '../../services/fx.service';
 import { budgetService } from '../../services/budget.service';
@@ -11,7 +12,9 @@ import { SelectedSpotInput } from '../../schemas/hotel.schema';
 
 export async function processSearchHotels(job: Job<TripJobPayload>) {
   const { tripId, userId } = job.data;
-  logger.info(`Starting search-hotels job for trip ${tripId}`);
+  const jobId = job.id!;
+  logger.info(`Starting search-hotels job ${jobId} for trip ${tripId}`);
+  await jobRepository.updateStatus(jobId, 'active');
 
   const trip = await tripRepository.findByIdAndUser(tripId, userId);
   if (!trip) {
@@ -145,6 +148,7 @@ export async function processSearchHotels(job: Job<TripJobPayload>) {
   );
 
   await tripRepository.updateHotelOptions(trip.id, enrichedOptions);
+  await jobRepository.updateStatus(jobId, 'completed');
   logger.info(`search-hotels completed with ${enrichedOptions.length} options for trip ${trip.id}`);
 
   return {
