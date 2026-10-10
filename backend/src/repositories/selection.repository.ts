@@ -107,6 +107,32 @@ export class SelectionRepository {
       );
     });
   }
+
+  /**
+   * Replaces the hotel selection for a trip atomically.
+   */
+  async replaceHotelSelection(tripId: string, data: CreateSelectionParams) {
+    return prisma.$transaction(async (tx) => {
+      await tx.selection.deleteMany({
+        where: { tripId, type: 'hotel' },
+      });
+      return tx.selection.create({
+        data: {
+          tripId: data.tripId,
+          type: 'hotel',
+          providerId: data.providerId,
+          providerName: data.providerName || null,
+          originalMoney: data.originalMoney as any,
+          convertedMoney: data.convertedMoney as any,
+          fxRate: data.fxRate ?? 1.0,
+          fxAt: data.fxAt ?? new Date(),
+          deepLink: data.deepLink || null,
+          metadata: data.metadata || null,
+        },
+      });
+    });
+  }
 }
 
 export const selectionRepository = new SelectionRepository();
+

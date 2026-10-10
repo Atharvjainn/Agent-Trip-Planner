@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { getTripBudgetHandler } from '../controllers/budget.controller';
+import { hotelController } from '../controllers/hotel.controller';
 import { requireAuth } from '../middlewares/auth';
 import { validate } from '../middlewares/validate';
 import { tripParamsSchema } from '../schemas/trip.schema';
@@ -14,4 +15,11 @@ router.get(
   asyncHandler(getTripBudgetHandler)
 );
 
+router.patch(
+  '/',
+  requireAuth,
+  asyncHandler((req, res, next) => hotelController.updateStayBudget(req, res, next))
+);
+
 export default router;
+

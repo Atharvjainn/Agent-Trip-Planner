@@ -98,6 +98,15 @@ export class TripRepository {
     });
   }
 
+  async updateHotelOptions(id: string, hotelOptions: any) {
+    return prisma.trip.update({
+      where: { id },
+      data: {
+        hotelOptions,
+      } as any,
+    });
+  }
+
   async updateStatus(id: string, status: TripStatus) {
     return prisma.trip.update({
       where: { id },

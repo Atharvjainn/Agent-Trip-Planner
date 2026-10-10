@@ -23,6 +23,12 @@ import {
   AIFlightSearchResponseSchema,
 } from '../schemas/flight.schema';
 
+import {
+  AIHotelSearchRequest,
+  AIHotelSearchResponse,
+  AIHotelSearchResponseSchema,
+} from '../schemas/hotel.schema';
+
 class AIClient {
   private baseUrl: string;
   private internalKey: string;
@@ -107,6 +113,18 @@ class AIClient {
         errors: parsed.error.issues,
       });
       throw new BadGatewayError('Invalid response schema from flight search service');
+    }
+    return parsed.data;
+  }
+
+  async searchHotels(req: AIHotelSearchRequest): Promise<AIHotelSearchResponse> {
+    const data = await this.post('/internal/hotels/search', req);
+    const parsed = AIHotelSearchResponseSchema.safeParse(data);
+    if (!parsed.success) {
+      logger.error('Invalid schema from /internal/hotels/search:', {
+        errors: parsed.error.issues,
+      });
+      throw new BadGatewayError('Invalid response schema from hotel search service');
     }
     return parsed.data;
   }

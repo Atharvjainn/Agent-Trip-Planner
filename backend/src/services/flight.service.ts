@@ -127,9 +127,24 @@ export class FlightService {
       await tripRepository.updateStatus(tripId, TripStatus.FLIGHT_SELECTED);
     }
 
+    // Trigger search-hotels job for the next step
+    const hotelJob = await tripQueue.add('search-hotels', {
+      tripId: trip.id,
+      userId,
+    });
+    if (hotelJob.id) {
+      await jobRepository.create({
+        id: hotelJob.id,
+        tripId: trip.id,
+        userId,
+        name: 'search-hotels',
+      });
+    }
+
     return {
       success: true,
       selection,
+      searchHotelsJobId: hotelJob.id,
       nextStep: `/trips/${tripId}/hotels`,
     };
   }
