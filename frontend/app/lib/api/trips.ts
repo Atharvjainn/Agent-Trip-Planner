@@ -6,6 +6,7 @@ import {
   JobResponse,
   tripResponseSchema,
   jobResponseSchema,
+  ChatResponse,
 } from './schemas';
 
 export interface CreateTripResult {
@@ -165,6 +166,30 @@ export async function buildTripSummary(tripId: string): Promise<{ jobId: string;
     method: 'POST',
   });
 }
+
+export async function sendTripChat(
+  tripId: string,
+  message: string,
+  sessionId?: string,
+  userLocation?: { lat: number; lng: number }
+): Promise<ChatResponse> {
+  return apiFetch<ChatResponse>(`/trips/${tripId}/chat`, {
+    method: 'POST',
+    body: JSON.stringify({ message, sessionId, userLocation }),
+  });
+}
+
+export async function startTripChat(
+  message: string,
+  sessionId?: string,
+  userLocation?: { lat: number; lng: number }
+): Promise<ChatResponse> {
+  return apiFetch<ChatResponse>(`/trips/chat`, {
+    method: 'POST',
+    body: JSON.stringify({ message, sessionId, userLocation }),
+  });
+}
+
 
 
 

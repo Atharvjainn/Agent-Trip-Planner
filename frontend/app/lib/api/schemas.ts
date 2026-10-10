@@ -340,4 +340,34 @@ export interface FullSummaryResponse {
   } | null;
 }
 
+export const chatTurnResponseSchema = z.object({
+  reply: z.string(),
+  stage: z.string(),
+  uiComponent: z.string(),
+  options: z.array(z.record(z.string(), z.unknown())).default([]),
+  requiresUserInput: z.boolean(),
+  inputType: z.string(),
+});
+
+export type ChatTurnResponse = z.infer<typeof chatTurnResponseSchema>;
+
+export const chatResponseSchema = z.object({
+  tripId: z.string(),
+  sessionId: z.string(),
+  conversationStage: z.string(),
+  tripStatus: z.string(),
+  turnResponse: chatTurnResponseSchema,
+  stateSummary: z.record(z.string(), z.unknown()).default({}),
+  metrics: z
+    .object({
+      totalMs: z.number(),
+      routingMs: z.number().nullable().optional(),
+      graphExecMs: z.number(),
+    })
+    .optional(),
+});
+
+export type ChatResponse = z.infer<typeof chatResponseSchema>;
+
+
 

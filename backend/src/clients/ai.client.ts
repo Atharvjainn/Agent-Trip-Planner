@@ -40,6 +40,19 @@ import {
   SummaryBuildResponse,
   summaryBuildResponseSchema,
 } from '../schemas/summary.schema';
+import {
+  AIChatResponse,
+  aiChatResponseSchema,
+} from '../schemas/chat.schema';
+
+export interface AIChatRequest {
+  tripId: string;
+  message: string;
+  sessionId?: string;
+  userId?: string;
+  userLocation?: { lat: number; lng: number };
+  existingState?: Record<string, any>;
+}
 
 class AIClient {
   private baseUrl: string;
@@ -161,6 +174,18 @@ class AIClient {
         errors: parsed.error.issues,
       });
       throw new BadGatewayError('Invalid response schema from summary build service');
+    }
+    return parsed.data;
+  }
+
+  async chat(req: AIChatRequest): Promise<AIChatResponse> {
+    const data = await this.post('/internal/chat', req);
+    const parsed = aiChatResponseSchema.safeParse(data);
+    if (!parsed.success) {
+      logger.error('Invalid schema from /internal/chat:', {
+        errors: parsed.error.issues,
+      });
+      throw new BadGatewayError('Invalid response schema from chat service');
     }
     return parsed.data;
   }
