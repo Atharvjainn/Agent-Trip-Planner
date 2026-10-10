@@ -140,12 +140,15 @@ export default function SpotsPage({
 
     setIsSubmittingSelection(true);
     try {
-      await selectSpots(tripId, Array.from(selectedSpotIds));
+      const res = await selectSpots(tripId, Array.from(selectedSpotIds));
       setSelectionSuccess(true);
       if (trip) {
         setTrip({ ...trip, status: 'SPOTS_SELECTED' });
       }
-      // Note: In Phase 3, this will navigate to /trips/:id/flight
+      const nextUrl = res.searchFlightsJobId
+        ? `/trips/${tripId}/flights?jobId=${res.searchFlightsJobId}`
+        : `/trips/${tripId}/flights`;
+      router.push(nextUrl);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to save spot selections';
       alert(msg);

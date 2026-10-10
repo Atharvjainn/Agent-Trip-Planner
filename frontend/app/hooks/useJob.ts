@@ -84,7 +84,7 @@ export function useJob(jobId: string | null | undefined, options: UseJobOptions 
         }
       } catch (err: unknown) {
         if (!isMounted) return;
-        console.error('Job polling error:', err);
+        // Suppress transient network hiccups during server restart so they don't break the poll loop
       }
     };
 

@@ -33,7 +33,7 @@ export const ProviderRefSchema = z.object({
   deepLink: z.string().nullable().optional(),
 });
 
-// Budget Allocation
+// Budget Allocation & Tracker
 export const categoryAllocationSchema = z.object({
   category: BudgetCategorySchema,
   amount: MoneySchema,
@@ -41,15 +41,30 @@ export const categoryAllocationSchema = z.object({
 
 export type CategoryAllocation = z.infer<typeof categoryAllocationSchema>;
 
+export const categoryTrackerSchema = z.object({
+  category: z.string(),
+  allocatedMinor: z.number(),
+  spentMinor: z.number(),
+  remainingMinor: z.number(),
+  isOverBudget: z.boolean(),
+});
+
+export type CategoryTracker = z.infer<typeof categoryTrackerSchema>;
+
 export const tripBudgetResponseSchema = z.object({
   tripId: z.string(),
   currency: z.string(),
   totalBudget: MoneySchema,
+  totalSpent: MoneySchema.optional(),
+  totalRemaining: MoneySchema.optional(),
+  isOverBudget: z.boolean().optional(),
   allocations: z.array(categoryAllocationSchema),
+  tracker: z.array(categoryTrackerSchema).optional(),
   explanation: z.string().optional(),
 });
 
 export type TripBudgetResponse = z.infer<typeof tripBudgetResponseSchema>;
+
 
 // Trip Creation
 export const createTripSchema = z
@@ -138,6 +153,85 @@ export const selectSpotsSchema = z.object({
 
 export type SelectSpotsInput = z.infer<typeof selectSpotsSchema>;
 
+// Flight Options
+export const flightLegSchema = z.object({
+  airline: z.string(),
+  flightNumber: z.string(),
+  departureAirport: z.string(),
+  arrivalAirport: z.string(),
+  departsAt: z.string(),
+  arrivesAt: z.string(),
+});
+
+export const flightOptionSchema = z.object({
+  providerRef: ProviderRefSchema,
+  outbound: z.array(flightLegSchema),
+  inbound: z.array(flightLegSchema).default([]),
+  price: MoneySchema,
+  stops: z.number().int().nonnegative(),
+  totalDurationMinutes: z.number().int().nonnegative(),
+  convertedPrice: MoneySchema.optional(),
+  fxRate: z.number().optional(),
+  isSelected: z.boolean().optional(),
+});
+
+export type FlightLeg = z.infer<typeof flightLegSchema>;
+export type FlightOption = z.infer<typeof flightOptionSchema>;
+
+export const selectFlightSchema = z.object({
+  flight: flightOptionSchema,
+});
+
+export type SelectFlightInput = z.infer<typeof selectFlightSchema>;
+
+// Hotel Options
+export const spotDistanceSchema = z.object({
+  spotId: z.string(),
+  spotName: z.string(),
+  distanceKm: z.number().nonnegative(),
+});
+
+export const hotelOptionSchema = z.object({
+  providerRef: ProviderRefSchema,
+  name: z.string(),
+  location: GeoPointSchema,
+  pricePerNight: MoneySchema,
+  convertedPricePerNight: MoneySchema.optional(),
+  totalPrice: MoneySchema.optional(),
+  rating: z.number().min(0).max(5).nullable().optional(),
+  reviewSnippet: z.string().nullable().optional(),
+  distances: z.array(spotDistanceSchema),
+  score: z.number().min(0).max(1),
+  fxRate: z.number().optional(),
+  isSelected: z.boolean().optional(),
+});
+
+export type SpotDistance = z.infer<typeof spotDistanceSchema>;
+export type HotelOption = z.infer<typeof hotelOptionSchema>;
+
+export const selectHotelSchema = z.object({
+  hotel: hotelOptionSchema,
+});
+
+export type SelectHotelInput = z.infer<typeof selectHotelSchema>;
+
+// Selections
+export const selectionSchema = z.object({
+  id: z.string(),
+  tripId: z.string(),
+  type: z.enum(['spot', 'flight', 'hotel']),
+  providerId: z.string(),
+  providerName: z.string().nullable().optional(),
+  originalMoney: MoneySchema,
+  convertedMoney: MoneySchema,
+  fxRate: z.number(),
+  fxAt: z.string(),
+  deepLink: z.string().nullable().optional(),
+  metadata: z.record(z.string(), z.unknown()).nullable().optional(),
+});
+
+export type Selection = z.infer<typeof selectionSchema>;
+
 // Job response
 export const jobResponseSchema = z.object({
   id: z.string(),
@@ -164,6 +258,9 @@ export const tripResponseSchema = z.object({
   baseCurrency: z.string(),
   destinationOptions: z.array(destinationOptionSchema).nullable().optional(),
   spotOptions: z.array(spotOptionSchema).nullable().optional(),
+  flightOptions: z.array(flightOptionSchema).nullable().optional(),
+  hotelOptions: z.array(hotelOptionSchema).nullable().optional(),
+  selections: z.array(selectionSchema).nullable().optional(),
   budgetAllocation: z
     .object({
       tripId: z.string().optional(),
@@ -188,3 +285,5 @@ export const tripResponseSchema = z.object({
 });
 
 export type TripResponse = z.infer<typeof tripResponseSchema>;
+
+
