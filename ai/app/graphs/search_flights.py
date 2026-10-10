@@ -41,7 +41,11 @@ async def node_fetch(state: FlightState) -> dict:
     deps = state["deps"]
     try:
         flights = await deps.serpapi.search_flights(
-            source=req.source, destination=req.destination, start_date=req.start_date, end_date=req.end_date
+            source=req.source,
+            destination=req.destination,
+            start_date=req.start_date,
+            end_date=req.end_date,
+            currency=req.flights_budget.currency,
         )
     except (FixtureNotFound, httpx.HTTPStatusError, httpx.RequestError) as exc:
         # No LLM fallback exists for this job (ai/AGENT.md: "n/a (no
@@ -59,13 +63,28 @@ async def node_filter_and_sort(state: FlightState) -> dict:
     req = state["request"]
     settings = get_settings()
     budget_minor = req.flights_budget.amount_minor
+    budget_currency = req.flights_budget.currency.upper().strip()
+
+    raw_flights = state.get("raw", [])
+
+    # Partition options by currency to ensure monetary values in different
+    # currencies are never compared as if they were identical (AGENTS.md §6).
+    matching = [f for f in raw_flights if f.currency.upper().strip() == budget_currency]
+    mismatched = [f for f in raw_flights if f.currency.upper().strip() != budget_currency]
 
     # Within-budget options first (still price-sorted), then the cheapest
-    # over-budget options after — so the page always has something to
-    # show even if nothing fits, per apps/web's "empty state" requirement.
-    within_budget = [f for f in state["raw"] if f.price_amount_minor <= budget_minor]
-    over_budget = [f for f in state["raw"] if f.price_amount_minor > budget_minor]
-    ordered = within_budget + over_budget
+    # over-budget options after.
+    within_budget = [f for f in matching if f.price_amount_minor <= budget_minor]
+    within_budget.sort(key=lambda f: f.price_amount_minor)
+
+    over_budget = [f for f in matching if f.price_amount_minor > budget_minor]
+    over_budget.sort(key=lambda f: f.price_amount_minor)
+
+    # For mismatched currency: sort within their respective currency without
+    # cross-currency numeric comparison against budget_minor.
+    mismatched.sort(key=lambda f: (f.currency, f.price_amount_minor))
+
+    ordered = within_budget + over_budget + mismatched
 
     options = [
         FlightOption(

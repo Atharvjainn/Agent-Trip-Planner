@@ -40,6 +40,7 @@ context, not conversation_stage, as the signal.
 """
 import json
 import logging
+import re
 from datetime import date
 from typesafe_sdk import TypeSafeClient
 from openai import OpenAI
@@ -61,7 +62,7 @@ _decision_client = TypeSafeClient(
 # and everything built on it (build_reply, extract_trip_slots) needs no
 # other changes.
 _generation_client = OpenAI(
-    base_url=config.GEMINI_BASE_URL, api_key=config.GEMINI_API_KEY, max_retries=0
+    base_url=config.GEMINI_BASE_URL, api_key=config.GEMINI_API_KEY, max_retries=0, timeout=15.0
 )
 
 
@@ -89,11 +90,15 @@ def _decide_fallback(state: str, questions: dict) -> dict:
     try:
         response = generate([{"role": "user", "content": prompt}], max_tokens=150)
         content = response.content.strip()
-        if content.startswith("```json"):
-            content = content[7:]
-        if content.endswith("```"):
-            content = content[:-3]
-        parsed = json.loads(content.strip())
+        m_json = re.search(r"\{.*?\}", content, re.DOTALL)
+        if m_json:
+            parsed = json.loads(m_json.group(0))
+        else:
+            if content.startswith("```json"):
+                content = content[7:]
+            if content.endswith("```"):
+                content = content[:-3]
+            parsed = json.loads(content.strip())
         if isinstance(parsed, dict):
             values = {}
             for qid, spec in questions.items():
@@ -223,38 +228,76 @@ def decide(state: str, questions: dict, model: str = FAST_MODEL, think: int | No
         raise
 
 
+_gemini_cooldown_until = 0.0
+
+def _extract_retry_delay(err_str: str) -> float:
+    """Extract retry delay in seconds from Gemini 429 error message if present, or return default 60s."""
+    import re
+    m_retry_info = re.search(r"retryDelay':\s*'(\d+)s'", err_str)
+    if m_retry_info:
+        return float(m_retry_info.group(1))
+    m_text = re.search(r"retry in (\d+(?:\.\d+)?)s", err_str, re.IGNORECASE)
+    if m_text:
+        return float(m_text.group(1))
+    m_min_sec = re.search(r"retry in (\d+)m(\d+(?:\.\d+)?)s", err_str, re.IGNORECASE)
+    if m_min_sec:
+        return float(m_min_sec.group(1)) * 60.0 + float(m_min_sec.group(2))
+    return 60.0
+
+
 def generate(messages: list, model: str = GENERATION_MODEL, tools: list | None = None,
              max_tokens: int = 512):
-    """Free-form generation / tool-calling extraction. Returns the raw
-    message object (.content and/or .tool_calls)."""
+    """Free-form generation / tool-calling extraction with Gemini circuit breaker and Groq fallback."""
+    global _gemini_cooldown_until
     import time
     kwargs = {"model": model, "messages": messages, "max_tokens": max_tokens}
     if tools:
         kwargs["tools"] = tools
-    for attempt in range(2):
-        try:
-            response = _generation_client.chat.completions.create(**kwargs)
-            return response.choices[0].message
-        except Exception as exc:
-            err_str = str(exc)
-            if ("429" in err_str or "RateLimit" in err_str or "RESOURCE_EXHAUSTED" in err_str) and attempt < 1:
-                sleep_sec = 2 * (attempt + 1)
-                logger.warning("Rate limit hit in generate() (attempt %d/2), sleeping %ds: %s", attempt + 1, sleep_sec, err_str[:100])
-                time.sleep(sleep_sec)
-                continue
-            groq_key = os.getenv("GROQ_API_KEY")
-            if groq_key:
-                try:
-                    from openai import OpenAI
-                    groq_client = OpenAI(base_url="https://api.groq.com/openai/v1", api_key=groq_key)
-                    groq_kwargs = dict(kwargs)
-                    groq_kwargs["model"] = "qwen/qwen3.8-27b"
-                    res = groq_client.chat.completions.create(**groq_kwargs)
-                    logger.info("Groq fallback successful for generate()")
-                    return res.choices[0].message
-                except Exception as groq_exc:
-                    logger.warning("Groq fallback failed: %s", groq_exc)
-            raise
+
+    groq_key = os.getenv("GROQ_API_KEY")
+
+    def _call_groq():
+        if groq_key:
+            try:
+                from openai import OpenAI
+                groq_client = OpenAI(base_url="https://api.groq.com/openai/v1", api_key=groq_key)
+                groq_kwargs = dict(kwargs)
+                groq_kwargs["model"] = "qwen/qwen3.8-27b"
+                res = groq_client.chat.completions.create(**groq_kwargs)
+                logger.info("Groq fallback successful for generate()")
+                return res.choices[0].message
+            except Exception as groq_exc:
+                logger.warning("Groq fallback failed: %s", groq_exc)
+        return None
+
+    now = time.time()
+    if now < _gemini_cooldown_until:
+        logger.info(
+            "Gemini circuit breaker ACTIVE (cooldown remaining: %ds). Bypassing Gemini to Groq.",
+            int(_gemini_cooldown_until - now)
+        )
+        groq_msg = _call_groq()
+        if groq_msg:
+            return groq_msg
+
+    try:
+        response = _generation_client.chat.completions.create(**kwargs)
+        return response.choices[0].message
+    except Exception as exc:
+        err_str = str(exc)
+        if any(marker in err_str for marker in ("429", "RateLimit", "RESOURCE_EXHAUSTED", "503", "502", "504", "500", "UNAVAILABLE", "overloaded", "high demand", "Service Unavailable", "InternalServerError", "timed out", "Timeout")):
+            delay = _extract_retry_delay(err_str)
+            cooldown_sec = max(60.0, min(delay, 300.0))
+            _gemini_cooldown_until = time.time() + cooldown_sec
+            logger.warning(
+                "Gemini error (%s). Tripping circuit breaker for %ds and triggering Groq fallback.",
+                err_str[:120],
+                int(cooldown_sec)
+            )
+            groq_msg = _call_groq()
+            if groq_msg:
+                return groq_msg
+        raise exc
 
 
 # ------------------------------------------------------- history context --
@@ -579,19 +622,43 @@ def extract_trip_slots(message: str) -> dict:
     return {}
 
 
+def _sanitize_context_for_reply(context: dict) -> dict:
+    """Trim heavy object lists (attractions, candidates, options) to concise summary dicts for build_reply context."""
+    if not isinstance(context, dict):
+        return context
+    clean = {}
+    for k, v in context.items():
+        if isinstance(v, list) and v and isinstance(v[0], dict):
+            clean_list = []
+            for item in v:
+                item_clean = {}
+                for field in ("name", "title", "rating", "price", "category", "city", "description", "id", "code"):
+                    if field in item and item[field] is not None:
+                        val = item[field]
+                        if field == "description" and isinstance(val, str) and len(val) > 100:
+                            val = val[:100] + "..."
+                        item_clean[field] = val
+                clean_list.append(item_clean if item_clean else item)
+            clean[k] = clean_list
+        else:
+            clean[k] = v
+    return clean
+
+
 def build_reply(context: dict, instruction: str, model: str = GENERATION_MODEL) -> str:
     """The conversational text shown to the user, for every node.
     Explicitly told to use only the facts given in context - the actual
     data always comes from SerpApi/the knowledge graph, never invented."""
+    sanitized_ctx = _sanitize_context_for_reply(context)
     try:
         response = generate(
             [{"role": "system", "content": "You are a concise, friendly trip-planning assistant. "
                                             "Use only the facts given in context - never invent a place, "
                                             "price, rating, or detail that isn't there. Two or three "
                                             "sentences, no more."},
-             {"role": "user", "content": f"Context: {json.dumps(context, default=str)}\n\nInstruction: {instruction}"}],
+             {"role": "user", "content": f"Context: {json.dumps(sanitized_ctx, default=str)}\n\nInstruction: {instruction}"}],
             model=model,
-            max_tokens=200,
+            max_tokens=300,
         )
         return response.content
     except Exception as exc:

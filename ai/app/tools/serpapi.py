@@ -28,6 +28,7 @@ except ImportError:  # pragma: no cover - redis is a declared dependency
     redis_asyncio = None  # type: ignore[assignment]
 
 from app.config import get_settings
+from app.schemas.common import get_currency_exponent
 
 logger = logging.getLogger("services.ai.serpapi")
 
@@ -266,7 +267,14 @@ class SerpApiClient:
     # -- public, per-engine methods -----------------------------------
 
     async def search_flights(
-        self, *, source: str, destination: str, start_date: date, end_date: date, cap: int | None = None
+        self,
+        *,
+        source: str,
+        destination: str,
+        start_date: date,
+        end_date: date,
+        currency: str | None = None,
+        cap: int | None = None,
     ) -> list[NormalizedFlight]:
         params = {
             "departure_id": source,
@@ -274,8 +282,10 @@ class SerpApiClient:
             "outbound_date": start_date.isoformat(),
             "return_date": end_date.isoformat(),
         }
+        if currency:
+            params["currency"] = currency.upper().strip()
         raw = await self._cached_fetch("google_flights", params, self._settings.ttl_flights)
-        flights = _normalize_flights(raw)
+        flights = _normalize_flights(raw, requested_currency=params.get("currency"))
         cap = cap or self._settings.cap_flights
         return flights[:cap]
 
@@ -443,8 +453,15 @@ async def _bg_ingest(coro: Any) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _normalize_flights(raw: dict[str, Any]) -> list[NormalizedFlight]:
+def _normalize_flights(raw: dict[str, Any], requested_currency: str | None = None) -> list[NormalizedFlight]:
     out: list[NormalizedFlight] = []
+    detected_currency = (
+        raw.get("search_parameters", {}).get("currency")
+        or raw.get("search_metadata", {}).get("currency")
+        or requested_currency
+        or "USD"
+    ).upper().strip()
+
     for group_key in ("best_flights", "other_flights"):
         for item in raw.get(group_key, []):
             flights_legs = item.get("flights", [])
@@ -461,6 +478,11 @@ def _normalize_flights(raw: dict[str, Any]) -> list[NormalizedFlight]:
                 )
                 for leg in flights_legs
             ]
+            item_curr = (item.get("currency") or detected_currency).upper().strip()
+            item_exp = get_currency_exponent(item_curr)
+            price_val = float(item.get("price", 0))
+            price_minor = int(round(price_val * (10 ** item_exp)))
+
             out.append(
                 NormalizedFlight(
                     provider_ref=NormalizedProviderRef(
@@ -472,8 +494,8 @@ def _normalize_flights(raw: dict[str, Any]) -> list[NormalizedFlight]:
                     ),
                     outbound=legs,
                     inbound=[],
-                    price_amount_minor=int(round(float(item.get("price", 0)) * 100)),
-                    currency=raw.get("search_parameters", {}).get("currency", "USD"),
+                    price_amount_minor=price_minor,
+                    currency=item_curr,
                     stops=max(0, len(legs) - 1),
                     total_duration_minutes=int(item.get("total_duration", 0)),
                 )

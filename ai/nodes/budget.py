@@ -53,6 +53,23 @@ def budget_node(state: TripState) -> TripState:
         }
         return state
 
+    if not state.get("departure_city"):
+        state["conversation_stage"] = "collecting_departure"
+        exp = get_currency_exponent(currency)
+        major_b = state["budget_total"] / (10 ** exp)
+        state["turn_response"] = {
+            "reply": llm.build_reply(
+                context={"destination_city": dest, "budget": f"{currency} {major_b:g}"},
+                instruction=f"Acknowledge the {currency} {major_b:g} budget for the trip to {dest}, and ask where the user will be traveling/departing from.",
+            ),
+            "stage": "collecting_departure",
+            "ui_component": "text",
+            "options": [],
+            "requires_user_input": True,
+            "input_type": "free_text",
+        }
+        return state
+
     # budget_total is ALREADY an int representing amountMinor per Task 4
     budget_minor = state["budget_total"]
     duration = state.get("duration_days") or 4

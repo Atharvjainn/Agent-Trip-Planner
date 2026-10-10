@@ -25,9 +25,12 @@ logger = logging.getLogger(__name__)
 
 
 def _parse_budget_number(text: str) -> float | None:
-    """Parse numeric budget, supporting Indian terms (lakh, crore, k) and standard numbers."""
+    """Parse numeric budget, supporting Indian terms (lakh, crore, k) and standard numbers.
+    Never parses duration (days/nights) or traveler counts (people/persons) as budget."""
     if not text:
         return None
+
+    # First check Indian terms like "2 lakhs", "1.5 crore", "50k"
     m_term = re.search(
         r"\b(\d+(?:\.\d+)?)\s*(lakhs?|lacs?|crores?|cr|k)\b",
         text,
@@ -43,10 +46,36 @@ def _parse_budget_number(text: str) -> float | None:
         elif unit == "k":
             return val * 1000.0
 
-    m_num = re.search(r"\b(\d[\d,]*)\b", text)
+    # Strip phrases that indicate duration, night count, traveler count, time
+    clean_text = re.sub(
+        r"\b\d+\s*[- ]?(?:days?|nights?|people|persons?|travelers?|travellers?|pax|weeks?|months?|hours?|hrs?|mins?|minutes?)\b",
+        " ",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    # Check for budget with explicit currency or budget keyword
+    # e.g. "budget 30000", "30000 INR", "INR 30000", "Rs 30000", "₹30000", "$500"
+    m_budget_explicit = re.search(
+        r"(?:budget(?:\s*(?:of|is|:))?\s*|₹|\$|rs\.?\s*|inr\s*)\s*(\d[\d,]*)|(\d[\d,]*)\s*(?:inr|rs\.?|rupees?|usd|eur|gbp|\$|₹)",
+        clean_text,
+        re.IGNORECASE,
+    )
+    if m_budget_explicit:
+        raw_num = m_budget_explicit.group(1) or m_budget_explicit.group(2)
+        try:
+            return float(raw_num.replace(",", ""))
+        except ValueError:
+            pass
+
+    # If no explicit budget keywords, check for a number in clean_text
+    # but ONLY if the number is plausible for a budget (>= 500) or clean_text is just a number
+    m_num = re.search(r"\b(\d[\d,]*)\b", clean_text)
     if m_num:
         try:
-            return float(m_num.group(1).replace(",", ""))
+            val = float(m_num.group(1).replace(",", ""))
+            if val >= 500 or clean_text.strip() == m_num.group(1):
+                return val
         except ValueError:
             pass
     return None
@@ -62,6 +91,15 @@ def _regex_extract_slots(text: str) -> dict:
     if budget_val is not None:
         slots["budget_total"] = budget_val
 
+    # Detect currency if explicitly stated
+    m_curr = re.search(r"\b(INR|USD|EUR|GBP|JPY|AUD|CAD|rupees?|rs\.?)\b", text, re.IGNORECASE)
+    if m_curr:
+        curr_raw = m_curr.group(1).upper()
+        if curr_raw in ("RUPEE", "RUPEES", "RS", "RS."):
+            slots["currency"] = "INR"
+        else:
+            slots["currency"] = curr_raw
+
     dur_match = re.search(r"\b(\d+)\s*[- ]?days?\b", text, re.IGNORECASE)
     if dur_match:
         try:
@@ -70,7 +108,7 @@ def _regex_extract_slots(text: str) -> dict:
             pass
 
     dep_match = re.search(
-        r"\bfrom\s+([A-Za-z\s]+?)(?=\s+(?:to|for|with|on|in|during|\d+|days?)|$)",
+        r"\b(?:from|leaving\s+from|departing\s+from|travel\s+from|traveling\s+from)\s+([A-Za-z\s]+?)(?=\s+(?:to|for|with|on|in|during|\d+|days?)|$)",
         text,
         re.IGNORECASE,
     )
@@ -81,12 +119,13 @@ def _regex_extract_slots(text: str) -> dict:
             slots["departure_city"] = dep.title()
 
     dest_match = re.search(
-        r"\bto\s+([A-Za-z\s]+?)(?=\s+(?:for|from|with|on|in|during|\d+|days?)|$)",
+        r"\b(?:actually,?|let'?s\s+(?:go\s+to|visit)|go\s+to|head\s+to|travel\s+to|trip\s+to|change\s+(?:destination\s+)?to|switch\s+to|visit|visiting|explore|exploring|to)\s+([A-Za-z\s]+?)(?=\s+(?:for|from|with|on|in|during|\d+|days?|instead)|$)",
         text,
         re.IGNORECASE,
     )
     if dest_match:
         dest = dest_match.group(1).strip()
+        dest = re.sub(r"^(?:visit|visiting|go to|explore|head to)\s+", "", dest, flags=re.IGNORECASE).strip()
         stop_words = {"a", "an", "the", "some", "my", "our", "me", "it", "there", "here"}
         if dest and dest.lower() not in stop_words and len(dest) >= 2:
             slots["destination_city"] = dest.title()
@@ -231,20 +270,27 @@ def destination_node(state: TripState) -> TripState:
 
 
 def _fill_known_slots(state: TripState) -> None:
+    slots = {}
     try:
-        slots = llm.extract_trip_slots(state["last_user_message"])
+        slots = llm.extract_trip_slots(state["last_user_message"]) or {}
     except Exception as exc:
         logger.warning(
             "LLM extract_trip_slots failed due to provider outage: %s. Using regex fallback slot extraction.",
             exc,
         )
-        slots = _regex_extract_slots(state.get("last_user_message", ""))
+
+    # Always complement with regex extraction if LLM missed any slots
+    regex_slots = _regex_extract_slots(state.get("last_user_message", ""))
+    for k, v in regex_slots.items():
+        if k not in slots or not slots[k]:
+            slots[k] = v
+
+    if slots.get("currency"):
+        state["currency"] = slots["currency"]
 
     # When we're specifically waiting for a departure city, re-interpret
-    # any extracted city (bare replies like "Mumbai" are classified as
-    # destination_city by the extractor because there's no context saying
-    # it's a departure) as departure_city, and stop it from being written
-    # to destination_city in the loop below.
+    # any extracted city as departure_city, and prevent overwriting
+    # an already confirmed destination_city.
     if (
         state.get("conversation_stage") == "collecting_departure"
         and not state.get("departure_city")
@@ -253,27 +299,54 @@ def _fill_known_slots(state: TripState) -> None:
         if city:
             slots = dict(slots)          # don't mutate the original
             slots["departure_city"] = city
-            slots.pop("destination_city", None)  # prevent incorrect destination assignment
+            if state.get("destination_city"):
+                slots.pop("destination_city", None)  # preserve confirmed destination
 
     from app.schemas.common import float_to_money_dict
 
-    if state.get("conversation_stage") == "collecting_budget" and not state.get("budget_total"):
+    current_dest = state.get("destination_city")
+    extracted_dest = slots.get("destination_city")
+
+    # Detect destination change
+    if extracted_dest and current_dest and extracted_dest.strip().lower() != current_dest.strip().lower():
+        state["destination_city"] = extracted_dest.strip().title()
+        # Clear old destination-dependent cached options and selections
+        state["destination_candidates"] = []
+        state["attraction_candidates"] = []
+        state["confirmed_attractions"] = []
+        state["hotel_candidates"] = []
+        state["confirmed_hotel"] = None
+        state["itinerary"] = []
+        state["budget_allocation"] = None
+    elif extracted_dest and not current_dest:
+        state["destination_city"] = extracted_dest.strip().title()
+
+    # Update duration if specified
+    if slots.get("duration_days"):
+        state["duration_days"] = slots["duration_days"]
+
+    # Budget handling: only set or update if valid
+    if not state.get("budget_total"):
         extracted_b = slots.get("budget_total") or _parse_budget_number(state.get("last_user_message", ""))
         if extracted_b:
             curr = state.get("currency", "INR") or "INR"
             m_dict = float_to_money_dict(extracted_b, curr)
             if m_dict:
                 state["budget_total"] = m_dict["amountMinor"]
-
-    for key in ("destination_city", "departure_city", "budget_total", "duration_days",
-                "outbound_date", "return_date"):
-        if slots.get(key) is not None and not state.get(key):
-            if key == "budget_total":
-                m_dict = float_to_money_dict(slots[key], state.get("currency", "INR") or "INR")
+    else:
+        # If budget_total is already set, only update if the user explicitly provided a new budget
+        user_msg = state.get("last_user_message", "")
+        if re.search(r"\b(?:budget|inr|usd|eur|gbp|rupees?|rs\.?|₹|\$)\b", user_msg, re.IGNORECASE):
+            extracted_b = slots.get("budget_total") or _parse_budget_number(user_msg)
+            if extracted_b:
+                curr = state.get("currency", "INR") or "INR"
+                m_dict = float_to_money_dict(extracted_b, curr)
                 if m_dict:
                     state["budget_total"] = m_dict["amountMinor"]
-            else:
-                state[key] = slots[key]
+
+    for key in ("departure_city", "outbound_date", "return_date"):
+        if slots.get(key) is not None and not state.get(key):
+            state[key] = slots[key]
 
     if not state.get("vibe"):
         try:
