@@ -25,12 +25,7 @@ from app.schemas.destinations import (
     DestinationRecommendRequest,
     DestinationRecommendResponse,
 )
-from app.tools.serpapi import SerpApiClient
-try:
-    from tools.serpapi_client import resolve_departure_id
-except Exception:  # noqa: BLE001
-    def resolve_departure_id(city_text: str) -> str | None:  # type: ignore[misc]
-        return city_text if (len(city_text) == 3 and city_text.isupper()) else None
+from app.tools.serpapi import SerpApiClient, resolve_departure_id
 
 logger = logging.getLogger("services.ai.graphs.recommend_destinations")
 
@@ -106,8 +101,9 @@ async def node_gather_candidates(state: DestState) -> dict:
         learned_candidates = []
 
     # Decision Gate: if experienced destinations >= cap exist, use them directly as primary source
-    if len(learned_candidates) >= cap:
-        return {"candidates": learned_candidates[:cap]}
+    EXPLORATION_SLOTS = min(2, cap)  # always reserve at least 2 slots for fresh discovery
+    max_learned = max(cap - EXPLORATION_SLOTS, 0)
+    learned_candidates = learned_candidates[:max_learned]
 
     # Otherwise (when learned candidates with similarity >= threshold are fewer than cap), supplement with normal discovery
     needed_kg = cap - len(learned_candidates)
@@ -184,12 +180,13 @@ async def node_price_check(state: DestState) -> dict:
     req = state["request"]
     deps = state["deps"]
     priced = []
+    dep_id = resolve_departure_id(req.source)
     for candidate in state["candidates"]:
         try:
             dest_id = resolve_departure_id(candidate["city"])
-            if dest_id:
+            if dep_id and dest_id:
                 flights = await deps.serpapi.search_flights(
-                    source=req.source,
+                    source=dep_id,
                     destination=dest_id,
                     start_date=req.start_date,
                     end_date=req.end_date,
@@ -197,13 +194,16 @@ async def node_price_check(state: DestState) -> dict:
                     cap=1,
                 )
                 if flights:
-                    price = Money(amount_minor=flights[0].price_amount_minor, currency=flights[0].currency)
+                    fl = flights[0]
+                    rate = 85.0 if fl.currency == "USD" and req.budget_total.currency == "INR" else 1.0
+                    amt_minor = int(round(fl.price_amount_minor * rate)) if fl.currency != req.budget_total.currency else fl.price_amount_minor
+                    price = Money(amount_minor=amt_minor, currency=req.budget_total.currency)
                 else:
                     price = _fallback_price(req)
             else:
                 logger.warning(
-                    "recommend_destinations: could not resolve destination ID for %s, using fallback price",
-                    candidate["city"],
+                    "recommend_destinations: could not resolve flight IDs for %s -> %s, using fallback price",
+                    req.source, candidate["city"],
                 )
                 price = _fallback_price(req)
         except Exception as exc:
@@ -227,6 +227,17 @@ def _fallback_price(req: DestinationRecommendRequest) -> Money:
     # back to a rough, clearly-an-estimate share of the trip budget rather
     # than blocking the whole recommendation on one bad lookup.
     return Money(amount_minor=round(req.budget_total.amount_minor * 0.3), currency=req.budget_total.currency)
+
+
+def build_destination_card(destination: str, base_currency: str = "INR", raw_price_usd: float = 410.00) -> dict:
+    rate = 85.0 if base_currency.upper() == "INR" else 1.0
+    return {
+        "city": destination,
+        "estFlightPrice": {
+            "amountMinor": int(round(raw_price_usd * 100 * rate)),
+            "currency": base_currency.upper(),
+        },
+    }
 
 
 async def node_rank(state: DestState) -> dict:

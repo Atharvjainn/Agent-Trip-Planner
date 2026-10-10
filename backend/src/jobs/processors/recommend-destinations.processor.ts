@@ -4,6 +4,7 @@ import { TripJobPayload } from '../queue';
 import { tripRepository } from '../../repositories/trip.repository';
 import { jobRepository } from '../../repositories/job.repository';
 import { logger } from '../../lib/logger';
+import { fxService } from '../../services/fx.service';
 
 export async function processRecommendDestinations(job: Job<TripJobPayload>) {
   const { tripId, userId } = job.data;
@@ -33,7 +34,18 @@ export async function processRecommendDestinations(job: Job<TripJobPayload>) {
     vibes: trip.vibes,
   });
 
-  await tripRepository.updateDestinationOptions(trip.id, aiResponse.options);
+  const convertedOptions = await Promise.all(
+    aiResponse.options.map(async (opt) => {
+      try {
+        const { converted } = await fxService.convert(opt.estimatedFlightPrice, trip.baseCurrency);
+        return { ...opt, estimatedFlightPrice: converted };
+      } catch {
+        return opt;
+      }
+    })
+  );
+
+  await tripRepository.updateDestinationOptions(trip.id, convertedOptions);
   await jobRepository.updateStatus(jobId, 'completed');
   logger.info(`Completed recommend-destinations for trip ${tripId}`);
 }

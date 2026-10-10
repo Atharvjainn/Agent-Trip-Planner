@@ -1,4 +1,13 @@
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+function getBaseUrl() {
+  if (typeof window !== 'undefined') {
+    const { protocol, hostname } = window.location;
+    if (process.env.NEXT_PUBLIC_API_URL && !process.env.NEXT_PUBLIC_API_URL.includes('localhost')) {
+      return process.env.NEXT_PUBLIC_API_URL;
+    }
+    return `${protocol}//${hostname}:5000`;
+  }
+  return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+}
 
 export interface ApiResponse<T> {
   status: 'success' | 'error';
@@ -22,7 +31,7 @@ export async function apiFetch<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const url = `${BASE_URL}${endpoint}`;
+  const url = `${getBaseUrl()}${endpoint}`;
   const headers = new Headers(options.headers || {});
   
   if (!headers.has('Content-Type') && !(options.body instanceof FormData)) {

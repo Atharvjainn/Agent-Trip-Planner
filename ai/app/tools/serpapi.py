@@ -16,7 +16,7 @@ import hashlib
 import json
 import logging
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -210,6 +210,8 @@ CITY_TO_AIRPORTS: dict[str, list[str]] = {
     "ahmedabad": ["AMD"],
     "pune": ["PNQ"],
     "srinagar": ["SXR"],
+    "kashmir": ["SXR", "IXJ"],
+    "jammu": ["IXJ"],
     "leh": ["IXL"],
     "amritsar": ["ATQ"],
     "varanasi": ["VNS"],
@@ -240,6 +242,16 @@ def resolve_airport_codes(name: str) -> list[str]:
     return [cleaned]
 
 
+def resolve_departure_id(city_text: str) -> str | None:
+    if not city_text:
+        return None
+    cleaned = city_text.strip()
+    if (len(cleaned) == 3 and cleaned.isupper()) or cleaned.startswith(("/m/", "/g/")):
+        return cleaned
+    codes = resolve_airport_codes(cleaned)
+    return codes[0] if (codes and codes[0].lower() != cleaned.lower()) else None
+
+
 def _generate_fallback_flights(dep_code: str, arr_code: str, start_date: date, end_date: date) -> list[NormalizedFlight]:
     airlines = [
         ("IndiGo", "6E-2145", 540000, "INR", 85),
@@ -250,7 +262,7 @@ def _generate_fallback_flights(dep_code: str, arr_code: str, start_date: date, e
     out: list[NormalizedFlight] = []
     dep_dt = datetime.combine(start_date, datetime.min.time()).replace(hour=7, minute=30)
     for idx, (airline, fl_num, price_minor, curr, dur) in enumerate(airlines):
-        arr_dt = dep_dt.replace(hour=dep_dt.hour + (dur // 60), minute=dep_dt.minute + (dur % 60))
+        arr_dt = dep_dt + timedelta(minutes=dur)
         legs = [
             NormalizedFlightLeg(
                 airline=airline,
@@ -374,9 +386,11 @@ class SerpApiClient:
         currency: str | None = None,
         cap: int | None = None,
     ) -> list[NormalizedFlight]:
-        source_codes = resolve_airport_codes(source)
+        dep_id = resolve_departure_id(source)
+        if not dep_id:
+            logger.warning("serpapi: unresolvable departure_id for %s, skipping flight search", source)
+            return []
         dest_codes = resolve_airport_codes(destination)
-        dep_id = source_codes[0]
         flights: list[NormalizedFlight] = []
 
         # Try destination airport candidates in priority order (e.g. SLV then IXC for Shimla)
@@ -386,6 +400,7 @@ class SerpApiClient:
                 "arrival_id": arr_id,
                 "outbound_date": start_date.isoformat(),
                 "return_date": end_date.isoformat(),
+                "currency": currency or "USD",
             }
             try:
                 raw = await self._cached_fetch("google_flights", params, self._settings.ttl_flights)

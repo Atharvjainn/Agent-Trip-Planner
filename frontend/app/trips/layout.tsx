@@ -76,7 +76,7 @@ export default function TripsLayout({ children }: { children: React.ReactNode })
 
       {/* Floating Chat Button for Active Trips */}
       {activeTripId && !isChatPage && (
-        <div className="fixed bottom-6 right-6 z-40">
+        <div className={`fixed ${pathname.includes('/spots') ? 'bottom-24' : 'bottom-6'} right-6 z-40`}>
           <Link
             href={`/trips/${activeTripId}/chat`}
             className="flex items-center gap-2.5 px-5 py-3 rounded-2xl bg-slate-900 text-white font-bold text-sm shadow-xl shadow-slate-900/25 hover:bg-slate-800 hover:scale-105 active:scale-95 transition-all border border-slate-700/60"

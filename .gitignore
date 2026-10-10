@@ -34,6 +34,13 @@ tripenv/
 ai/tests/test_cache_relevance_regression.py
 ai/tests/test_issue1_regression.py
 ai/tests/test_issue2_flight_currency_regression.py
+ai/tests/test_departure_and_currency_regression.py
 
 # Local debugging script
 scratch_chat_test.py
+ai/tests/test_fix1_fix2_regression.py
+backend/env
+execute_reruns.py
+frontend/env.download
+rerun_results.json
+scratch_results.json

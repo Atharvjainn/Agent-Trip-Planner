@@ -21,7 +21,7 @@ export const TripForm: React.FC<TripFormProps> = ({ onSubmit, isLoading = false 
     startDate: today,
     endDate: today,
     travelers: 1,
-    budgetAmount: 50000,
+    budgetAmount: 10000,
     currency: 'INR',
     vibes: [],
   });
@@ -211,13 +211,16 @@ export const TripForm: React.FC<TripFormProps> = ({ onSubmit, isLoading = false 
           <input
             type="number"
             min={1}
-            step={100}
-            placeholder="e.g. 50000"
-            value={formData.budgetAmount}
-            onChange={(e) =>
-              setFormData({ ...formData, budgetAmount: Number(e.target.value) })
-            }
-            className={`flex-1 px-4 py-2.5 rounded-xl border text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+            placeholder="e.g. 10000"
+            value={formData.budgetAmount ?? ''}
+            onChange={(e) => {
+              const val = e.target.value;
+              setFormData({
+                ...formData,
+                budgetAmount: val === '' ? undefined : Number(val),
+              });
+            }}
+            className={`flex-1 px-4 py-2.5 rounded-xl border text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
               errors.budgetAmount ? 'border-rose-400 bg-rose-50/20' : 'border-slate-200'
             }`}
           />
