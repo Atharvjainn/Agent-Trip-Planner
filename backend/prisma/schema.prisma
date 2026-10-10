@@ -7,6 +7,10 @@ generator client {
   provider = "prisma-client-js"
 }
 
+// ============================================================
+// AUTH — BETTER AUTH
+// ============================================================
+
 model User {
   id            String    @id @default(cuid())
   name          String
@@ -15,8 +19,13 @@ model User {
   image         String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
+
   sessions      Session[]
   accounts      Account[]
+
+  // Travel Planner
+  trips         Trip[]
+  jobs          Job[]
 
   @@map("user")
 }
@@ -30,6 +39,7 @@ model Session {
   ipAddress String?
   userAgent String?
   userId    String
+
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("session")
@@ -40,7 +50,9 @@ model Account {
   accountId             String
   providerId            String
   userId                String
+
   user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   accessToken           String?
   refreshToken          String?
   idToken               String?
@@ -48,6 +60,7 @@ model Account {
   refreshTokenExpiresAt DateTime?
   scope                 String?
   password              String?
+
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 
@@ -63,4 +76,109 @@ model Verification {
   updatedAt  DateTime? @updatedAt
 
   @@map("verification")
+}
+
+// ============================================================
+// ENUMS
+// ============================================================
+
+enum TripStatus {
+  DRAFT
+  DESTINATION_SELECTED
+  BUDGET_ESTIMATED
+  SPOTS_SELECTED
+  FLIGHT_SELECTED
+  HOTEL_SELECTED
+  SUMMARY_READY
+}
+
+enum SelectionType {
+  spot
+  flight
+  hotel
+}
+
+// ============================================================
+// TRIP, JOB & SELECTION
+// ============================================================
+
+model Trip {
+  id                 String     @id @default(cuid())
+
+  userId             String
+  user               User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  status             TripStatus @default(DRAFT)
+
+  source             String
+  destinationCity    String?
+  destinationCountry String?
+
+  startDate          DateTime
+  endDate            DateTime
+
+  travelers          Int        @default(1)
+  vibes              String[]   @default([])
+
+  budgetTotalMinor   Int
+  baseCurrency       String
+
+  destinationOptions Json?
+  spotOptions        Json?
+  budgetAllocation   Json?
+  flightOptions      Json?
+  hotelOptions       Json?
+  savingSuggestions  Json?
+  summary            Json?
+
+  jobs               Job[]
+  selections         Selection[]
+
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+
+  @@index([userId])
+  @@map("trip")
+}
+
+model Job {
+  id        String   @id // BullMQ job id
+  tripId    String
+  trip      Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
+
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name      String
+  status    String   // queued | active | completed | failed
+  error     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tripId])
+  @@index([userId])
+  @@map("job")
+}
+
+model Selection {
+  id             String        @id @default(cuid())
+  tripId         String
+  trip           Trip          @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  type           SelectionType
+  providerId     String
+  providerName   String?
+  originalMoney  Json          // { amountMinor: number, currency: string }
+  convertedMoney Json          // { amountMinor: number, currency: string }
+  fxRate         Float         @default(1.0)
+  fxAt           DateTime      @default(now())
+  deepLink       String?
+  metadata       Json?
+
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([tripId])
+  @@index([tripId, type])
+  @@map("selection")
 }

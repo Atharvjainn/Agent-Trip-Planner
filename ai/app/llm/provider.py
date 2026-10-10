@@ -64,7 +64,7 @@ class GeminiBackend:
             raise ProviderUnavailable("GEMINI_API_KEY not configured")
         url = (
             "https://generativelanguage.googleapis.com/v1beta/models/"
-            f"gemini-3.5-flash:generateContent?key={self._settings.gemini_api_key}"
+            f"gemini-3.1-flash-lite:generateContent?key={self._settings.gemini_api_key}"
         )
         body = {
             "contents": [{"parts": [{"text": prompt}]}],
