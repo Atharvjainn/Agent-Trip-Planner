@@ -193,6 +193,7 @@ async def node_price_check(state: DestState) -> dict:
                     destination=dest_id,
                     start_date=req.start_date,
                     end_date=req.end_date,
+                    currency=req.budget_total.currency,
                     cap=1,
                 )
                 if flights:

@@ -27,6 +27,7 @@ import llm
 from state import TripState
 from nodes.router import classify_intent
 from nodes.destination import destination_node
+from nodes.budget import budget_node
 from nodes.attractions import attractions_node, confirm_attractions_node
 from nodes.hotels import hotels_node, confirm_hotel_node
 from nodes.itinerary import itinerary_node
@@ -47,19 +48,46 @@ def greeting_node(state: TripState) -> TripState:
     return state
 
 
+def is_destination_change(state: TripState) -> bool:
+    current_dest = state.get("destination_city")
+    if not current_dest:
+        return False
+    user_msg = state.get("last_user_message", "")
+    if not user_msg:
+        return False
+    import re
+    change_markers = [
+        r"\b(?:actually|instead|rather|change|switch)\b",
+        r"\b(?:let'?s\s+(?:go\s+to|visit)|go\s+to|head\s+to|visit|trip\s+to|travel\s+to)\s+([A-Za-z]+)",
+    ]
+    if any(re.search(p, user_msg, re.IGNORECASE) for p in change_markers):
+        from nodes.destination import _regex_extract_slots
+        slots = _regex_extract_slots(user_msg)
+        new_dest = slots.get("destination_city")
+        if new_dest and new_dest.strip().lower() != current_dest.strip().lower():
+            return True
+    return False
+
+
 def route_from_start(state: TripState) -> str:
+    if is_destination_change(state):
+        return "destination"
+    stage = state.get("conversation_stage", "start")
     intent = classify_intent(state)
     if intent == "greeting":
         return "greeting"
     if intent == "new_trip":
         return "destination"
-    if intent == "trip_adjustment":
+    if intent == "trip_adjustment" and stage not in ("collecting_departure", "collecting_destination", "collecting_budget"):
         return "adjust"
     # continue_flow: resume whatever the last turn was waiting on
     return {
         "start": "greeting",
         "collecting_departure": "destination",
+        "collecting_departure_airport": "destination",
         "collecting_destination": "destination",
+        "collecting_budget": "destination",
+        "estimating_budget": "budget",
         "collecting_attractions": "confirm_attractions",
         "collecting_hotel": "confirm_hotel",
         "confirming_hotel": "confirm_hotel",   # re-enter node to process yes/no
@@ -72,6 +100,9 @@ def route_from_start(state: TripState) -> str:
 
 
 def after_destination(state: TripState) -> str:
+    return "budget" if state["conversation_stage"] == "estimating_budget" else END
+
+def after_budget(state: TripState) -> str:
     return "attractions" if state["conversation_stage"] == "collecting_attractions" else END
 
 
@@ -88,6 +119,7 @@ def build_graph():
 
     graph.add_node("greeting", greeting_node)
     graph.add_node("destination", destination_node)
+    graph.add_node("budget", budget_node)
     graph.add_node("attractions", attractions_node)
     graph.add_node("confirm_attractions", confirm_attractions_node)
     graph.add_node("hotels", hotels_node)
@@ -107,7 +139,8 @@ def build_graph():
         },
     )
 
-    graph.add_conditional_edges("destination", after_destination, {"attractions": "attractions", END: END})
+    graph.add_conditional_edges("destination", after_destination, {"budget": "budget", END: END})
+    graph.add_conditional_edges("budget", after_budget, {"attractions": "attractions", END: END})
     graph.add_conditional_edges(
         "confirm_attractions", after_confirm_attractions, {"hotels": "hotels", END: END}
     )

@@ -14,11 +14,20 @@ def attractions_node(state: TripState) -> TripState:
     city = state["destination_city"]
     candidates = services.fetch_attraction_candidates(city)
 
+    summary_attractions = [
+        {
+            "name": attr.get("name"),
+            "rating": attr.get("rating"),
+            "category": attr.get("category"),
+        }
+        for attr in (candidates or [])
+    ]
+
     state["attraction_candidates"] = candidates
     state["conversation_stage"] = "collecting_attractions"
     state["turn_response"] = {
         "reply": llm.build_reply(
-            context={"attractions": candidates},
+            context={"attractions": summary_attractions},
             instruction="Present these attractions and ask the user to confirm which ones to include.",
         ),
         "stage": "collecting_attractions",

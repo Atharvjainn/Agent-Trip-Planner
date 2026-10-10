@@ -142,6 +142,10 @@ def _handle_reschedule_day(state: TripState) -> TripState:
 
 
 def _handle_extend_trip(state: TripState) -> TripState:
+    slots = llm.extract_trip_slots(state["last_user_message"])
+    ext_days = slots.get("duration_days")
+    if ext_days and isinstance(ext_days, (int, float)):
+        state["duration_days"] = (state.get("duration_days") or 0) + int(ext_days)
     already_seen = {a["place_id"] for a in state["confirmed_attractions"]} | {
         c["place_id"] for c in state["attraction_candidates"]
     }
@@ -188,7 +192,10 @@ def _handle_replace_items(state: TripState) -> TripState:
 def _handle_change_hotel(state: TripState) -> TripState:
     slots = llm.extract_trip_slots(state["last_user_message"])
     if slots.get("budget_total"):
-        state["budget_total"] = slots["budget_total"]
+        from app.schemas.common import float_to_money_dict
+        m_dict = float_to_money_dict(slots["budget_total"], state.get("currency", "INR") or "INR")
+        if m_dict:
+            state["budget_total"] = m_dict["amountMinor"]
 
     exclude = {state["confirmed_hotel"]["place_id"]} if state.get("confirmed_hotel") else set()
     attractions = state["confirmed_attractions"]
