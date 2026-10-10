@@ -40,6 +40,7 @@ context, not conversation_stage, as the signal.
 """
 import json
 import logging
+import re
 from datetime import date
 from typesafe_sdk import TypeSafeClient
 from openai import OpenAI
@@ -61,7 +62,7 @@ _decision_client = TypeSafeClient(
 # and everything built on it (build_reply, extract_trip_slots) needs no
 # other changes.
 _generation_client = OpenAI(
-    base_url=config.GEMINI_BASE_URL, api_key=config.GEMINI_API_KEY, max_retries=0
+    base_url=config.GEMINI_BASE_URL, api_key=config.GEMINI_API_KEY, max_retries=0, timeout=15.0
 )
 
 
@@ -89,11 +90,36 @@ def _decide_fallback(state: str, questions: dict) -> dict:
     try:
         response = generate([{"role": "user", "content": prompt}], max_tokens=150)
         content = response.content.strip()
-        if content.startswith("```json"):
-            content = content[7:]
-        if content.endswith("```"):
-            content = content[:-3]
-        parsed = json.loads(content.strip())
+        m_json = re.search(r"\{.*?\}", content, re.DOTALL)
+        if m_json:
+            parsed = json.loads(m_json.group(0))
+        else:
+            if content.startswith("```json"):
+                content = content[7:]
+            if content.endswith("```"):
+                content = content[:-3]
+            parsed = json.loads(content.strip())
+        if isinstance(parsed, dict):
+            values = {}
+            for qid, spec in questions.items():
+                if qid in parsed:
+                    values[qid] = parsed[qid]
+                else:
+                    found = False
+                    for alt in (qid.lower(), "choice", "selection", "answer", "option", "picked"):
+                        if alt in parsed:
+                            values[qid] = parsed[alt]
+                            found = True
+                            break
+                    if not found:
+                        q_type = spec["type"]
+                        if q_type == "choice":
+                            values[qid] = "none"
+                        elif q_type == "noul":
+                            values[qid] = False
+                        else:
+                            values[qid] = 0
+            return {"values": values, "confidences": {k: 1.0 for k in values}}
         return {"values": parsed, "confidences": {k: 1.0 for k in parsed}}
     except Exception as exc:
         logger.warning("Fallback execution failed: %s", type(exc).__name__)
@@ -101,13 +127,17 @@ def _decide_fallback(state: str, questions: dict) -> dict:
         values, confidences = {}, {}
         for qid, spec in questions.items():
             q_type = spec["type"]
+            fb = spec.get("fallback_default")
             if q_type == "choice":
-                keys = list(spec["criteria"].keys())
-                values[qid] = keys[0] if keys else "none"
+                if fb is not None:
+                    values[qid] = fb
+                else:
+                    keys = list(spec["criteria"].keys())
+                    values[qid] = keys[0] if keys else "none"
             elif q_type == "noul":
-                values[qid] = False
+                values[qid] = fb if fb is not None else False
             else:  # score
-                values[qid] = 0
+                values[qid] = fb if fb is not None else 0
             confidences[qid] = 0.0
         return {"values": values, "confidences": confidences}
 
@@ -198,38 +228,76 @@ def decide(state: str, questions: dict, model: str = FAST_MODEL, think: int | No
         raise
 
 
+_gemini_cooldown_until = 0.0
+
+def _extract_retry_delay(err_str: str) -> float:
+    """Extract retry delay in seconds from Gemini 429 error message if present, or return default 60s."""
+    import re
+    m_retry_info = re.search(r"retryDelay':\s*'(\d+)s'", err_str)
+    if m_retry_info:
+        return float(m_retry_info.group(1))
+    m_text = re.search(r"retry in (\d+(?:\.\d+)?)s", err_str, re.IGNORECASE)
+    if m_text:
+        return float(m_text.group(1))
+    m_min_sec = re.search(r"retry in (\d+)m(\d+(?:\.\d+)?)s", err_str, re.IGNORECASE)
+    if m_min_sec:
+        return float(m_min_sec.group(1)) * 60.0 + float(m_min_sec.group(2))
+    return 60.0
+
+
 def generate(messages: list, model: str = GENERATION_MODEL, tools: list | None = None,
              max_tokens: int = 512):
-    """Free-form generation / tool-calling extraction. Returns the raw
-    message object (.content and/or .tool_calls)."""
+    """Free-form generation / tool-calling extraction with Gemini circuit breaker and Groq fallback."""
+    global _gemini_cooldown_until
     import time
     kwargs = {"model": model, "messages": messages, "max_tokens": max_tokens}
     if tools:
         kwargs["tools"] = tools
-    for attempt in range(2):
-        try:
-            response = _generation_client.chat.completions.create(**kwargs)
-            return response.choices[0].message
-        except Exception as exc:
-            err_str = str(exc)
-            if ("429" in err_str or "RateLimit" in err_str or "RESOURCE_EXHAUSTED" in err_str) and attempt < 1:
-                sleep_sec = 2 * (attempt + 1)
-                logger.warning("Rate limit hit in generate() (attempt %d/2), sleeping %ds: %s", attempt + 1, sleep_sec, err_str[:100])
-                time.sleep(sleep_sec)
-                continue
-            groq_key = os.getenv("GROQ_API_KEY")
-            if groq_key:
-                try:
-                    from openai import OpenAI
-                    groq_client = OpenAI(base_url="https://api.groq.com/openai/v1", api_key=groq_key)
-                    groq_kwargs = dict(kwargs)
-                    groq_kwargs["model"] = "qwen/qwen3.8-27b"
-                    res = groq_client.chat.completions.create(**groq_kwargs)
-                    logger.info("Groq fallback successful for generate()")
-                    return res.choices[0].message
-                except Exception as groq_exc:
-                    logger.warning("Groq fallback failed: %s", groq_exc)
-            raise
+
+    groq_key = os.getenv("GROQ_API_KEY")
+
+    def _call_groq():
+        if groq_key:
+            try:
+                from openai import OpenAI
+                groq_client = OpenAI(base_url="https://api.groq.com/openai/v1", api_key=groq_key)
+                groq_kwargs = dict(kwargs)
+                groq_kwargs["model"] = "qwen/qwen3.8-27b"
+                res = groq_client.chat.completions.create(**groq_kwargs)
+                logger.info("Groq fallback successful for generate()")
+                return res.choices[0].message
+            except Exception as groq_exc:
+                logger.warning("Groq fallback failed: %s", groq_exc)
+        return None
+
+    now = time.time()
+    if now < _gemini_cooldown_until:
+        logger.info(
+            "Gemini circuit breaker ACTIVE (cooldown remaining: %ds). Bypassing Gemini to Groq.",
+            int(_gemini_cooldown_until - now)
+        )
+        groq_msg = _call_groq()
+        if groq_msg:
+            return groq_msg
+
+    try:
+        response = _generation_client.chat.completions.create(**kwargs)
+        return response.choices[0].message
+    except Exception as exc:
+        err_str = str(exc)
+        if any(marker in err_str for marker in ("429", "RateLimit", "RESOURCE_EXHAUSTED", "503", "502", "504", "500", "UNAVAILABLE", "overloaded", "high demand", "Service Unavailable", "InternalServerError", "timed out", "Timeout")):
+            delay = _extract_retry_delay(err_str)
+            cooldown_sec = max(60.0, min(delay, 300.0))
+            _gemini_cooldown_until = time.time() + cooldown_sec
+            logger.warning(
+                "Gemini error (%s). Tripping circuit breaker for %ds and triggering Groq fallback.",
+                err_str[:120],
+                int(cooldown_sec)
+            )
+            groq_msg = _call_groq()
+            if groq_msg:
+                return groq_msg
+        raise exc
 
 
 # ------------------------------------------------------- history context --
@@ -275,10 +343,27 @@ def classify_intent(state: dict) -> str:
     the whole state (not just the message) so the classifier sees the
     same trip history classify_adjustment_type does."""
     ctx = _summarize_trip_context(state)
+    stage = state.get("conversation_stage", "start")
+
+    fallback_intent = "continue_flow"
+    if stage == "start":
+        msg_lower = (state.get("last_user_message") or "").lower()
+        keywords = ("trip", "plan", "visit", "travel", "vacation", "holiday", "book", "flight", "hotel", "days", "day", "destination", "itinerary", "stay", "resort", "explore")
+        if any(kw in msg_lower for kw in keywords):
+            fallback_intent = "new_trip"
+        else:
+            fallback_intent = "greeting"
+
     result = decide(
         ctx,
-        {"intent": {"type": "choice", "instructions": "What is the user trying to do?",
-                    "criteria": INTENT_CRITERIA}},
+        {
+            "intent": {
+                "type": "choice",
+                "instructions": "What is the user trying to do?",
+                "criteria": INTENT_CRITERIA,
+                "fallback_default": fallback_intent,
+            }
+        },
         model=FAST_MODEL,
     )
     return result["values"]["intent"]
@@ -307,8 +392,14 @@ def classify_adjustment_type(state: dict) -> str:
     ctx = _summarize_trip_context(state)
     result = decide(
         ctx,
-        {"adjustment": {"type": "choice", "instructions": "What kind of change to the trip does the user need?",
-                        "criteria": ADJUSTMENT_CRITERIA}},
+        {
+            "adjustment": {
+                "type": "choice",
+                "instructions": "What kind of change to the trip does the user need?",
+                "criteria": ADJUSTMENT_CRITERIA,
+                "fallback_default": "replace_itinerary_items",
+            }
+        },
         model=REASONING_MODEL,
     )
     return result["values"]["adjustment"]
@@ -331,9 +422,14 @@ def classify_nearby_category(message: str, weather: dict) -> str:
     state = f"Weather right now: {weather['description']}, {weather['temp_c']}C\nUser message: {message}"
     result = decide(
         state,
-        {"category": {"type": "choice",
-                      "instructions": "What kind of nearby experience is the user asking for, given the weather?",
-                      "criteria": NEARBY_CATEGORY_CRITERIA}},
+        {
+            "category": {
+                "type": "choice",
+                "instructions": "What kind of nearby experience is the user asking for, given the weather?",
+                "criteria": NEARBY_CATEGORY_CRITERIA,
+                "fallback_default": "food",
+            }
+        },
         model=FAST_MODEL,
     )
     return result["values"]["category"]
@@ -355,12 +451,35 @@ def select_option(last_message: str, candidates: list, multi: bool = False) -> l
         criteria = {**labels, "none": "none of the above / unclear from the message"}
         result = decide(
             state,
-            {"pick": {"type": "choice", "instructions": "Which option is the user selecting?",
-                      "criteria": criteria}},
+            {
+                "pick": {
+                    "type": "choice",
+                    "instructions": "Which option is the user selecting?",
+                    "criteria": criteria,
+                    "fallback_default": "none",
+                }
+            },
             model=model,
         )
-        picked = result["values"]["pick"]
-        return [candidates[int(picked)]] if picked != "none" else []
+        logger.info("select_option raw decision result: %s", result)
+        values = result.get("values", {}) if isinstance(result, dict) else {}
+        picked = values.get("pick")
+        if picked is None:
+            for alt in ("choice", "selection", "answer", "option", "picked"):
+                if alt in values:
+                    picked = values[alt]
+                    break
+
+        if picked is not None:
+            picked_str = str(picked).strip()
+            if picked_str != "none" and picked_str in labels:
+                try:
+                    idx = int(picked_str)
+                    if 0 <= idx < len(candidates):
+                        return [candidates[idx]]
+                except (ValueError, TypeError):
+                    pass
+        return []
 
     questions = {
         f"pick_{i}": {"type": "noul",
@@ -368,7 +487,8 @@ def select_option(last_message: str, candidates: list, multi: bool = False) -> l
         for i in range(len(candidates))
     }
     result = decide(state, questions, model=model)
-    return [c for i, c in enumerate(candidates) if result["values"][f"pick_{i}"]]
+    values = result.get("values", {}) if isinstance(result, dict) else {}
+    return [c for i, c in enumerate(candidates) if values.get(f"pick_{i}", False)]
 
 
 # ------------------------------------------------- open-ended extraction --
@@ -396,8 +516,14 @@ VIBE_CRITERIA = {
 def classify_vibe(message: str) -> str | None:
     result = decide(
         message,
-        {"vibe": {"type": "choice", "instructions": "What kind of trip is this, if mentioned?",
-                  "criteria": {**VIBE_CRITERIA, "unspecified": "not mentioned in the message"}}},
+        {
+            "vibe": {
+                "type": "choice",
+                "instructions": "What kind of trip is this, if mentioned?",
+                "criteria": {**VIBE_CRITERIA, "unspecified": "not mentioned in the message"},
+                "fallback_default": "unspecified",
+            }
+        },
         model=FAST_MODEL,
     )
     vibe = result["values"]["vibe"]
@@ -425,9 +551,14 @@ def classify_explore_interest(message: str, vibe: str | None) -> str:
     state = f"Trip vibe (our own classification): {vibe or 'unspecified'}\nUser message: {message}"
     result = decide(
         state,
-        {"interest": {"type": "choice",
-                      "instructions": "Which travel interest category best fits this trip?",
-                      "criteria": EXPLORE_INTEREST_CRITERIA}},
+        {
+            "interest": {
+                "type": "choice",
+                "instructions": "Which travel interest category best fits this trip?",
+                "criteria": EXPLORE_INTEREST_CRITERIA,
+                "fallback_default": "0",
+            }
+        },
         model=FAST_MODEL,
     )
     return result["values"]["interest"]
@@ -444,7 +575,10 @@ _TRIP_SLOTS_TOOL = {
                 "destination_city": {"type": "string"},
                 "departure_city": {"type": "string",
                                     "description": "where the user is starting the trip from, if mentioned"},
-                "budget_total": {"type": "number"},
+                "budget_total": {
+                    "type": "number",
+                    "description": "total budget amount as a plain number. Convert Indian numbering terms like 'lakh' / 'lakhs' (multiply by 100,000) and 'crore' / 'crores' (multiply by 10,000,000) into a plain numeric value (e.g. '1 lakh' -> 100000, '2.5 lakh' -> 250000, '1 crore' -> 10000000)."
+                },
                 "duration_days": {"type": "integer"},
                 "free_minutes": {"type": "integer",
                                   "description": "minutes of free time mentioned for a nearby-exploration question"},
@@ -475,8 +609,9 @@ def extract_trip_slots(message: str) -> dict:
     today = date.today().isoformat()
     response = generate(
         [{"role": "system", "content": f"Today's date is {today}. Extract trip planning details "
-                                        "from the user's message, resolving any relative dates "
-                                        "against today's date. Call extracted_slots with only the "
+                                        "from the user's message, resolving any relative dates against today's date. "
+                                        "Convert Indian numbering terms ('lakh' = 100,000, 'crore' = 10,000,000) "
+                                        "into plain numeric values for budget_total. Call extracted_slots with only the "
                                         "fields actually mentioned."},
          {"role": "user", "content": message}],
         tools=[_TRIP_SLOTS_TOOL],
@@ -487,17 +622,48 @@ def extract_trip_slots(message: str) -> dict:
     return {}
 
 
+def _sanitize_context_for_reply(context: dict) -> dict:
+    """Trim heavy object lists (attractions, candidates, options) to concise summary dicts for build_reply context."""
+    if not isinstance(context, dict):
+        return context
+    clean = {}
+    for k, v in context.items():
+        if isinstance(v, list) and v and isinstance(v[0], dict):
+            clean_list = []
+            for item in v:
+                item_clean = {}
+                for field in ("name", "title", "rating", "price", "category", "city", "description", "id", "code"):
+                    if field in item and item[field] is not None:
+                        val = item[field]
+                        if field == "description" and isinstance(val, str) and len(val) > 100:
+                            val = val[:100] + "..."
+                        item_clean[field] = val
+                clean_list.append(item_clean if item_clean else item)
+            clean[k] = clean_list
+        else:
+            clean[k] = v
+    return clean
+
+
 def build_reply(context: dict, instruction: str, model: str = GENERATION_MODEL) -> str:
     """The conversational text shown to the user, for every node.
     Explicitly told to use only the facts given in context - the actual
     data always comes from SerpApi/the knowledge graph, never invented."""
-    response = generate(
-        [{"role": "system", "content": "You are a concise, friendly trip-planning assistant. "
-                                        "Use only the facts given in context - never invent a place, "
-                                        "price, rating, or detail that isn't there. Two or three "
-                                        "sentences, no more."},
-         {"role": "user", "content": f"Context: {json.dumps(context, default=str)}\n\nInstruction: {instruction}"}],
-        model=model,
-        max_tokens=200,
-    )
-    return response.content
+    sanitized_ctx = _sanitize_context_for_reply(context)
+    try:
+        response = generate(
+            [{"role": "system", "content": "You are a concise, friendly trip-planning assistant. "
+                                            "Use only the facts given in context - never invent a place, "
+                                            "price, rating, or detail that isn't there. Two or three "
+                                            "sentences, no more."},
+             {"role": "user", "content": f"Context: {json.dumps(sanitized_ctx, default=str)}\n\nInstruction: {instruction}"}],
+            model=model,
+            max_tokens=300,
+        )
+        return response.content
+    except Exception as exc:
+        logger.warning("build_reply LLM call failed: %s. Using fallback reply.", exc)
+        dest = context.get("destination_city")
+        if dest:
+            return f"Got it! Planning your trip to {dest}. Let's work out the budget next."
+        return "I am processing your trip request. Let's continue planning!"

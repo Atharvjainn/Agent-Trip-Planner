@@ -29,3 +29,11 @@ Thumbs.db
 .vscode/
 .idea/
 tripenv/
+
+# Local regression tests
+ai/tests/test_cache_relevance_regression.py
+ai/tests/test_issue1_regression.py
+ai/tests/test_issue2_flight_currency_regression.py
+
+# Local debugging script
+scratch_chat_test.py

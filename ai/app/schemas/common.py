@@ -97,3 +97,30 @@ class JobError(CamelModel):
     code: str
     message: str
     fallback_used: bool = False
+
+
+# ISO 4217 zero-decimal currencies
+_ZERO_DECIMAL_CURRENCIES = {
+    "BIF", "CLP", "DJF", "GNF", "ISK", "JPY", "KMF", "KRW", "MGA", "PYG",
+    "RWF", "UGX", "VND", "VUV", "XAF", "XOF", "XPF"
+}
+# ISO 4217 three-decimal currencies
+_THREE_DECIMAL_CURRENCIES = {
+    "BHD", "IQD", "JOD", "KWD", "OMR", "TND"
+}
+
+def get_currency_exponent(currency: str) -> int:
+    curr = (currency or "INR").upper().strip()
+    if curr in _ZERO_DECIMAL_CURRENCIES:
+        return 0
+    if curr in _THREE_DECIMAL_CURRENCIES:
+        return 3
+    return 2
+
+def float_to_money_dict(amount: any, currency: str = "INR") -> dict | None:
+    if amount is None or not isinstance(amount, (int, float)):
+        return None
+    curr = (currency or "INR").upper().strip()
+    exp = get_currency_exponent(curr)
+    amount_minor = int(round(float(amount) * (10 ** exp)))
+    return {"amountMinor": amount_minor, "currency": curr}

@@ -95,21 +95,22 @@ async def node_llm_adjust(state: BudgetState) -> dict:
             "explanation": adjustment.explanation,
             "fallback_used": False,
         }
-    except LLMAllProvidersFailed:
+    except Exception as e:
+        logger.info(f"estimate_budget: LLM error ({e}), using rules split")
         logger.info("estimate_budget: LLM unavailable, using rules split")
         return {"final_pct": base_pct, "explanation": DEFAULT_EXPLANATION, "fallback_used": True}
 
 
 async def node_finalize(state: BudgetState) -> dict:
     req = state["request"]
-    amounts = split_to_amounts(req.budget_total.amount_minor, state["final_pct"])
+    final_pct = state.get("final_pct") or state.get("base_pct")
+    amounts = split_to_amounts(req.budget_total.amount_minor, final_pct)
     if not validate_amounts(req.budget_total.amount_minor, amounts):
-        # Should be unreachable given split_to_amounts' construction, but
-        # this is the hard backstop called out in ai/AGENT.md: "If
-        # validation fails, return the rules split."
         logger.warning("estimate_budget: amount validation failed unexpectedly, forcing rules split")
         amounts = split_to_amounts(req.budget_total.amount_minor, state["base_pct"])
-        state = {**state, "explanation": DEFAULT_EXPLANATION, "fallback_used": True}
+
+    explanation = state.get("explanation", DEFAULT_EXPLANATION)
+    fallback_used = state.get("fallback_used", True)
 
     allocations = [
         CategoryAllocation(
@@ -119,8 +120,8 @@ async def node_finalize(state: BudgetState) -> dict:
     ]
     return {
         "allocations": allocations,
-        "explanation": state["explanation"],
-        "fallback_used": state["fallback_used"],
+        "explanation": explanation,
+        "fallback_used": fallback_used,
     }
 
 

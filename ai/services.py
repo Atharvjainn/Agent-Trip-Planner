@@ -118,9 +118,26 @@ def fetch_flight_options(departure_city: str, arrival_city: str, outbound_date: 
     arrival_id = serpapi_client.resolve_departure_id(arrival_city)  # same resolution logic either direction
     if not departure_id or not arrival_id:
         return None
-    return serpapi_client.search_flights(
+    raw_flights = serpapi_client.search_flights(
         departure_id, arrival_id, outbound_date, return_date=return_date, currency=currency
     )
+    if not raw_flights:
+        return raw_flights
+
+    expected_arrival_airports = serpapi_client.resolve_valid_airport_codes(arrival_city)
+    expected_departure_airports = serpapi_client.resolve_valid_airport_codes(departure_city)
+
+    filtered_flights = []
+    for flight in raw_flights:
+        arr_apt = flight.get("arrival_airport")
+        dep_apt = flight.get("departure_airport")
+        if expected_arrival_airports and arr_apt and arr_apt not in expected_arrival_airports:
+            continue
+        if expected_departure_airports and dep_apt and dep_apt not in expected_departure_airports:
+            continue
+        filtered_flights.append(flight)
+
+    return filtered_flights
 
 
 def attach_travel_times(day_plans: list) -> list:
